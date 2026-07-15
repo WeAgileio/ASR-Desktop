@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "notes": "Copy this file to evaluation/private/manifest.json and use only local media paths.",
+  "cases": [
+    {
+      "id": "clear-mandarin",
+      "path": "/absolute/path/to/clear-mandarin.mp4",
+      "category": "clear Mandarin",
+      "expected_terms": []
+    },
+    {
+      "id": "mixed-terminology",
+      "path": "/absolute/path/to/chinese-english.mp4",
+      "category": "Chinese-English terminology",
+      "expected_terms": ["FunASR", "OpenAI"]
+    },
+    {
+      "id": "noisy-audio",
+      "path": "/absolute/path/to/noisy.mp4",
+      "category": "background noise or music",
+      "expected_terms": []
+    },
+    {
+      "id": "long-video",
+      "path": "/absolute/path/to/long-video.mp4",
+      "category": "long-form video",
+      "expected_terms": []
+    }
+  ]
+}
+

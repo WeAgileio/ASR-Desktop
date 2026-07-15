@@ -1,0 +1,27 @@
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+.asr-srt-cache/
+.model-cache/
+.e2e-cache/
+evaluation/private/
+
+# Private source media and generated subtitles
+*.mp4
+*.MP4
+*.mp3
+*.MP3
+*.mov
+*.MOV
+*.m4a
+*.M4A
+*.wav
+*.WAV
+*.srt
