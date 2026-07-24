@@ -87,12 +87,26 @@ asr-srt video.mp4 --progress off
 ```
 
 - 音訊擷取百分比來自 FFmpeg 已處理的媒體時間，屬於實測值。
-- FunASR 搭配內建 VAD 時，callback 可能只代表內部 batch；工具不會把它假裝成整部影片百分比。第一次執行會顯示 spinner 與已用時間。
+- FunASR 搭配內建 VAD 時，工具會在相容 runtime 中以「已完成 VAD 語音區段時長 / 全部語音區段時長」顯示標記為 `estimated`／`~` 的 transcription 百分比。長短切片會依語音時長加權，不會把每個切片或動態 batch 視為等量工作。
+- 語音時長仍不等於實際運算時間；音訊內容、padding、batching 與機器負載都可能讓畫面百分比快於或慢於 wall-clock 進度，因此這個數字不會標示為 actual，成功完成前也不會到達 100%。
+- FunASR 的原生 callback 可能只代表會重置的內部 batch，工具不會把它冒充整部影片百分比。若安裝版本不支援安全的全域區段觀測，或觀測資料不一致，會自動退回歷史 RTF estimate；沒有足夠歷史資料時則顯示 spinner 與已用時間，字幕生成不受影響。
 - 同一模型版本、device/backend 與 runtime 累積至少兩個 30 秒以上的成功樣本後，ASR 可顯示標記為 `estimated`／`~` 的百分比與 ETA。估算在真正完成前不會到達 100%。
 - 效能樣本存放在 `<cache-dir>/performance.json`，不屬於 transcript cache key；刪除或損毀只會失去 ETA，不會使辨識失敗。
 - transcript cache 命中時，音訊擷取、模型準備與 ASR 會明確顯示為 `skipped`。
 
 若要把執行紀錄保存到檔案，建議使用 `--progress plain`。不要強制 `--progress rich` 後再重定向，否則檔案會包含終端控制碼。
+
+## Long-form transcription
+
+超過 30 分鐘的音訊會使用可恢復的長內容管線。預設以約 20 分鐘為目標，在 15–30 分鐘範圍內優先尋找鄰近靜音作為切點；找不到靜音時使用小型 overlap，最後依全域 timestamps 與文字邊界合併。
+
+- 同一任務的 pending chunks 共用一個 model session，避免每段重新載入模型。
+- 每個成功 chunk 都會原子寫入 `<cache-dir>/jobs/<key>/longform/chunks/`；中斷後，相同來源、模型 revision、device、語言、hotwords、音訊前處理與 planner identity 才能恢復。
+- `manifest.json` 或個別 checkpoint 損毀時，只重跑不相容的 chunk；不完整 checkpoints 不會冒充完整 transcript cache。
+- Resume progress 以已提交的音訊時長加上當前 chunk estimate 計算，仍標示 `estimated`，merge 與最終 cache 成功前不會到達 100%。
+- `auto` 只有在同模型 CPU/MPS 都累積足量且符合記憶體／swap guardrails 的長內容 profile 時才依 RTF 選 device；明確指定 `--device` 永遠優先。
+
+長內容效能資料位於 `<cache-dir>/long-form-performance.json`。若要釋放未完成任務空間，可刪除對應 job 的 `longform/audio/` 暫存內容；刪除 `longform/chunks/` 會失去 resume 能力，但不影響已完成的 `transcript.json`。排查速度時應分別比較 model-load、silence-planning、chunk-asr、normalization 與 chunk-merge spans，並同時觀察 peak RSS、memory pressure 與 swap。
 
 ## Model choice
 

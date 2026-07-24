@@ -24,3 +24,14 @@ The Python `AutoModel` path is the implemented runtime because it exposes charac
 - FFmpeg: 8.0.1
 - Logic, adapter-contract, CLI, and real FFmpeg end-to-end tests: 25 passed
 - Full real-model CLI check: MP4 → FFmpeg → Nano CPU → OpenCC → valid SRT succeeded; a second run was a transcript cache hit
+
+## Long-form conservative defaults
+
+- Long-form threshold: 30 minutes
+- Target chunk: 20 minutes; allowed range: 15–30 minutes
+- Silence search window: ±60 seconds; minimum silence: 600 ms
+- Dense-speech fallback overlap: 1.5 seconds
+- Execution: sequential chunks, one model session per device attempt
+- Auto device: retain availability-based fallback until both CPU and MPS have at least two compatible safe long-form samples
+- Candidate tuning gate: at least 10% RTF improvement, no transcript/timestamp regression, no sustained swap growth, and no peak-memory guardrail violation
+- Current blocker: installed Paraformer weights and representative private 10–60 minute/two-hour speech media are unavailable, so no new model/device/batch default is adopted

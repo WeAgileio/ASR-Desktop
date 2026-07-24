@@ -19,6 +19,33 @@ class FakeModel:
         return self.result
 
 
+class ObservedFakeModel(FakeModel):
+    def __init__(self, result):
+        super().__init__(result)
+        self.vad_model = object()
+        self.model = object()
+        self.inference_calls = []
+
+    def inference_with_vad(self):
+        return None
+
+    def inference(self, payload, *, model):
+        self.inference_calls.append((payload, model))
+        if model is self.vad_model:
+            return [{"value": [[0, 1000], [2000, 5000]]}]
+        return [{"text": str(value)} for value in payload]
+
+    def generate(self, **kwargs):
+        self.generate_kwargs = kwargs
+        self.inference("audio", model=self.vad_model)
+        self.inference(["short"], model=self.model)
+        self.inference(["long"], model=self.model)
+        callback = kwargs.get("progress_callback")
+        if callback:
+            callback(1, 1)
+        return self.result
+
+
 class AdapterDeviceTests(unittest.TestCase):
     def request(self):
         return AdapterRequest(Path("audio.wav"), 5000, "中文", ("OpenAI",), "cpu", "key")
@@ -70,6 +97,52 @@ class AdapterDeviceTests(unittest.TestCase):
         self.assertTrue(model.generate_kwargs["disable_pbar"])
         self.assertTrue(created["disable_pbar"])
 
+    def test_segment_observation_preserves_adapter_results_and_arguments(self):
+        cases = (
+            (FunAsrNanoAdapter, [{"text": "你好", "timestamps": [[0, 200], [200, 400]]}]),
+            (ParaformerAdapter, [{"text": "你好", "timestamp": [["你", 0, 200], ["好", 200, 400]]}]),
+        )
+        for adapter_type, raw in cases:
+            with self.subTest(adapter=adapter_type.__name__):
+                without_model = ObservedFakeModel(raw)
+                with_model = ObservedFakeModel(raw)
+                without = adapter_type(lambda **kwargs: without_model).transcribe(self.request())
+                seen = []
+                with_progress = adapter_type(lambda **kwargs: with_model).transcribe(
+                    AdapterRequest(
+                        Path("audio.wav"), 5000, "中文", ("OpenAI",), "cpu", "key",
+                        seen.append,
+                    )
+                )
+                self.assertEqual(with_progress.full_text, without.full_text)
+                self.assertEqual(with_progress.units, without.units)
+                self.assertEqual(with_progress.metadata.cache_key, without.metadata.cache_key)
+                without_args = {k: v for k, v in without_model.generate_kwargs.items()
+                                if k != "progress_callback"}
+                with_args = {k: v for k, v in with_model.generate_kwargs.items()
+                             if k != "progress_callback"}
+                self.assertEqual(with_args, without_args)
+                segment = [value for value in seen if value.scope == "whole-input"]
+                batch = [value for value in seen if value.scope == "batch"]
+                self.assertEqual([value.current for value in segment], [1000, 3800])
+                self.assertTrue(all(value.kind == "estimated" for value in segment))
+                self.assertEqual(len(batch), 1)
+
+    def test_model_session_reuses_one_model_and_single_call_remains_compatible(self):
+        raw = [{"text": "你好", "timestamps": [[0, 200], [200, 400]]}]
+        created = []
+        def factory(**kwargs):
+            created.append(kwargs)
+            return FakeModel(raw)
+        adapter = FunAsrNanoAdapter(factory)
+        with adapter.open_session("cpu") as session:
+            first = session.transcribe(self.request())
+            second = session.transcribe(self.request())
+        self.assertEqual(len(created), 1)
+        self.assertEqual(first.units, second.units)
+        adapter.transcribe(self.request())
+        self.assertEqual(len(created), 2)
+
     def test_malformed_output(self):
         adapter = FunAsrNanoAdapter(lambda **kwargs: FakeModel([{"text": "text"}]))
         with self.assertRaises(ModelOutputError):
@@ -87,6 +160,18 @@ class AdapterDeviceTests(unittest.TestCase):
         result = FunAsrNanoAdapter(lambda **kwargs: model).transcribe(self.request())
         self.assertEqual(result.units[0].start_ms, 780)
         self.assertEqual(result.units[1].text, "饭")
+
+    def test_nano_ignores_whitespace_timestamp_tokens(self):
+        model = FakeModel([{
+            "text": "你好",
+            "timestamps": [
+                ["你", 0, 200],
+                [" ", 200, 250],
+                ["好", 250, 450],
+            ],
+        }])
+        result = FunAsrNanoAdapter(lambda **kwargs: model).transcribe(self.request())
+        self.assertEqual([unit.text for unit in result.units], ["你", "好"])
 
     def test_device_resolution(self):
         self.assertEqual(resolve_device("auto", lambda: True).resolved, "mps")

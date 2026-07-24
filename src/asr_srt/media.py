@@ -185,3 +185,50 @@ def extract_audio(
         except FileNotFoundError:
             pass
     return destination
+
+
+def extract_audio_chunk(
+    source_wav: Path,
+    destination: Path,
+    start_ms: int,
+    end_ms: int,
+    runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+) -> Path:
+    source_wav = validate_source(source_wav)
+    if start_ms < 0 or end_ms <= start_ms:
+        raise ValidationError("Audio chunk boundaries are invalid")
+    ffmpeg = require_binary("ffmpeg")
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    command = [ffmpeg, "-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+               "-ss", f"{start_ms / 1000:.3f}", "-t", f"{(end_ms-start_ms) / 1000:.3f}",
+               "-i", str(source_wav), "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
+               str(destination)]
+    try:
+        completed = runner(command, capture_output=True, text=True, check=False)
+    except OSError as exc:
+        raise MediaError(f"Unable to extract audio chunk: {exc}") from exc
+    if completed.returncode != 0 or not destination.exists() or destination.stat().st_size == 0:
+        try:
+            destination.unlink()
+        except FileNotFoundError:
+            pass
+        raise MediaError(f"Audio chunk extraction failed: {completed.stderr.strip() or 'unknown error'}")
+    return destination
+
+
+def detect_silence(
+    source_wav: Path,
+    duration_ms: int,
+    minimum_silence_ms: int,
+    runner: Callable[..., subprocess.CompletedProcess] = subprocess.run,
+):
+    from .longform import parse_silence_intervals
+    ffmpeg = require_binary("ffmpeg")
+    command = [ffmpeg, "-nostdin", "-hide_banner", "-i", str(validate_source(source_wav)),
+               "-af", f"silencedetect=noise=-35dB:d={minimum_silence_ms / 1000:.3f}",
+               "-f", "null", "-"]
+    completed = runner(command, capture_output=True, text=True, check=False)
+    if completed.returncode != 0:
+        raise MediaError(f"Silence detection failed: {completed.stderr.strip() or 'unknown error'}")
+    return parse_silence_intervals(completed.stderr.splitlines(), duration_ms)

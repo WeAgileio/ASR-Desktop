@@ -1,6 +1,9 @@
 import json
 import platform
+import resource
 import sys
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
@@ -13,6 +16,133 @@ PROFILE_VERSION = 1
 MIN_AUDIO_SECONDS = 30.0
 MIN_SAMPLES = 2
 MAX_SAMPLES = 12
+METRICS_VERSION = 1
+
+
+@dataclass(frozen=True)
+class PerformanceSpan:
+    name: str
+    seconds: float
+
+    def __post_init__(self):
+        if not self.name or self.seconds < 0:
+            raise ValueError("Performance spans require a name and non-negative duration")
+
+
+@dataclass(frozen=True)
+class ResourceSnapshot:
+    peak_rss_mb: float
+    memory_pressure: Optional[float] = None
+    swap_used_mb: Optional[float] = None
+    version: int = METRICS_VERSION
+
+
+class StageRecorder:
+    def __init__(self):
+        self.spans: List[PerformanceSpan] = []
+
+    @contextmanager
+    def measure(self, name: str):
+        started = time.monotonic()
+        try:
+            yield
+        finally:
+            self.record(name, time.monotonic() - started)
+
+    def record(self, name: str, seconds: float) -> None:
+        self.spans.append(PerformanceSpan(name, max(0.0, seconds)))
+
+
+def resource_snapshot() -> ResourceSnapshot:
+    value = float(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    peak = value / (1024 * 1024) if platform.system() == "Darwin" else value / 1024
+    return ResourceSnapshot(round(peak, 3))
+
+
+@dataclass(frozen=True)
+class LongFormPerformanceKey:
+    model_id: str
+    model_revision: str
+    runtime: str
+    device: str
+    duration_band: str
+    planner_version: int
+    tuning: str = "default"
+
+    @property
+    def identity(self):
+        return "|".join(map(str, (self.model_id, self.model_revision, self.runtime,
+                                  self.device, self.duration_band, self.planner_version,
+                                  self.tuning)))
+
+
+class LongFormPerformanceProfile:
+    VERSION = 1
+    MIN_SAMPLES = 2
+
+    def __init__(self, path: Path):
+        self.path = Path(path)
+
+    def _load(self):
+        try:
+            data = json.loads(self.path.read_text())
+            return data.get("profiles", {}) if data.get("version") == self.VERSION else {}
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return {}
+
+    def record(self, key, *, rtf, peak_rss_mb, swap_grew=False, successful=True):
+        if not successful or rtf <= 0 or peak_rss_mb < 0:
+            return False
+        profiles = self._load()
+        values = profiles.setdefault(key.identity, [])
+        values.append({"rtf": rtf, "peak_rss_mb": peak_rss_mb,
+                       "swap_grew": bool(swap_grew)})
+        profiles[key.identity] = values[-MAX_SAMPLES:]
+        atomic_write_text(self.path, json.dumps({"version": self.VERSION, "profiles": profiles},
+                                                sort_keys=True, indent=2) + "\n")
+        return True
+
+    def eligible_rtf(self, key, *, max_peak_rss_mb=float("inf")):
+        values = self._load().get(key.identity, [])
+        valid = [item for item in values if isinstance(item, dict)
+                 and isinstance(item.get("rtf"), (int, float)) and item["rtf"] > 0
+                 and isinstance(item.get("peak_rss_mb"), (int, float))
+                 and item["peak_rss_mb"] <= max_peak_rss_mb and not item.get("swap_grew")]
+        if len(valid) < self.MIN_SAMPLES:
+            return None
+        return median(item["rtf"] for item in valid)
+
+    def choose_device(self, cpu_key, mps_key, *, max_peak_rss_mb=float("inf")):
+        cpu = self.eligible_rtf(cpu_key, max_peak_rss_mb=max_peak_rss_mb)
+        mps = self.eligible_rtf(mps_key, max_peak_rss_mb=max_peak_rss_mb)
+        if cpu is None or mps is None:
+            return None
+        return "cpu" if cpu <= mps else "mps"
+
+
+def duration_band(seconds):
+    if seconds < 600:
+        return "under-10m"
+    if seconds < 3600:
+        return "10m-60m"
+    return "over-60m"
+
+
+def tuning_eligible(*, baseline_rtf, candidate_rtf, peak_rss_mb, max_peak_rss_mb,
+                    swap_grew=False, quality_ok=True, timestamps_ok=True,
+                    minimum_improvement=0.10):
+    reasons = []
+    if candidate_rtf > baseline_rtf * (1 - minimum_improvement):
+        reasons.append("insufficient RTF improvement")
+    if peak_rss_mb > max_peak_rss_mb:
+        reasons.append("peak memory guardrail exceeded")
+    if swap_grew:
+        reasons.append("swap increased")
+    if not quality_ok:
+        reasons.append("transcript quality regression")
+    if not timestamps_ok:
+        reasons.append("timestamp regression")
+    return not reasons, tuple(reasons)
 
 
 def runtime_identity() -> str:
@@ -97,4 +227,3 @@ class PerformanceProfile:
         except OSError:
             return False
         return True
-

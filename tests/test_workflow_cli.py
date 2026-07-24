@@ -7,7 +7,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from asr_srt.cli import main
+from asr_srt.adapters.base import AdapterProgress
 from asr_srt.config import JobConfig
+from asr_srt.longform import LongFormSettings
 from asr_srt.device import DeviceDecision
 from asr_srt.domain import TranscriptMetadata
 from asr_srt.errors import MPSCompatibilityError
@@ -31,6 +33,75 @@ class StubAdapter:
 
 
 class WorkflowCliTests(unittest.TestCase):
+    def test_long_form_checkpoints_resume_and_reuse_one_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); source = root / "video.mp4"; source.write_bytes(b"x")
+            class LongAdapter:
+                model_id = "long-model"; model_revision = "r1"; progress_scope = "batch"
+                def __init__(self, fail_after=None):
+                    self.fail_after, self.calls, self.loads = fail_after, [], 0
+                @contextlib.contextmanager
+                def open_session(inner, device, stage_callback=None):
+                    inner.loads += 1
+                    class Session:
+                        def transcribe(_, request):
+                            inner.calls.append(request.audio_path.name)
+                            if inner.fail_after is not None and len(inner.calls) > inner.fail_after:
+                                raise RuntimeError("interrupted")
+                            base = transcript(cache_key=request.cache_key, device=device)
+                            units = tuple(unit for unit in base.units if unit.end_ms <= request.duration_ms)
+                            return replace(base, duration_ms=request.duration_ms, units=units,
+                                           metadata=replace(base.metadata, model_id="long-model",
+                                                            model_revision="r1", device=device,
+                                                            cache_key=request.cache_key))
+                    yield Session()
+            settings = LongFormSettings(threshold_ms=1000, target_ms=2000,
+                                        minimum_ms=1500, maximum_ms=3000,
+                                        fallback_overlap_ms=100)
+            config = JobConfig(source, cache_dir=root / "cache", output_path=root / "out.srt",
+                               overwrite=True, traditional=False, long_form=settings)
+            def fake_extract(src, dest, **kwargs):
+                dest.parent.mkdir(parents=True, exist_ok=True); dest.write_bytes(b"RIFF"); return dest
+            def fake_chunk(src, dest, start, end):
+                dest.parent.mkdir(parents=True, exist_ok=True); dest.write_bytes(b"RIFF"); return dest
+            failing = LongAdapter(fail_after=1)
+            service = LocalTranscriptionService(
+                adapter_factory=lambda name: failing,
+                device_resolver=lambda requested: DeviceDecision(requested, "cpu", False),
+            )
+            patches = (patch("asr_srt.workflow.probe_media", return_value=MediaInfo(5000, "aac")),
+                       patch("asr_srt.workflow.extract_audio", side_effect=fake_extract),
+                       patch("asr_srt.workflow.detect_silence", return_value=()),
+                       patch("asr_srt.workflow.extract_audio_chunk", side_effect=fake_chunk))
+            with patches[0], patches[1], patches[2], patches[3]:
+                with self.assertRaises(Exception):
+                    service.run(config)
+            self.assertEqual(failing.loads, 1)
+            succeeding = LongAdapter()
+            service = LocalTranscriptionService(
+                adapter_factory=lambda name: succeeding,
+                device_resolver=lambda requested: DeviceDecision(requested, "cpu", False),
+            )
+            with patch("asr_srt.workflow.probe_media", return_value=MediaInfo(5000, "aac")), \
+                 patch("asr_srt.workflow.extract_audio", side_effect=fake_extract), \
+                 patch("asr_srt.workflow.detect_silence", return_value=()), \
+                 patch("asr_srt.workflow.extract_audio_chunk", side_effect=fake_chunk):
+                result = service.run(config)
+            self.assertEqual(succeeding.loads, 1)
+            self.assertEqual(len(succeeding.calls), 2)
+            self.assertEqual(result.transcript.duration_ms, 5000)
+            result.transcript_path.unlink()
+            checkpoint_only = LongAdapter()
+            service = LocalTranscriptionService(
+                adapter_factory=lambda name: checkpoint_only,
+                device_resolver=lambda requested: DeviceDecision(requested, "cpu", False),
+            )
+            with patch("asr_srt.workflow.probe_media", return_value=MediaInfo(5000, "aac")), \
+                 patch("asr_srt.workflow.extract_audio", side_effect=fake_extract), \
+                 patch("asr_srt.workflow.detect_silence", return_value=()), \
+                 patch("asr_srt.workflow.extract_audio_chunk", side_effect=fake_chunk):
+                service.run(config)
+            self.assertEqual(checkpoint_only.loads, 0)
     def run_service(self, tmp, model="paraformer", subtitle_override=None, fail_mps=False):
         source = Path(tmp) / "video sample.mp4"
         source.write_bytes(b"video-content")
@@ -203,6 +274,81 @@ class WorkflowCliTests(unittest.TestCase):
                          and e.status == "running" and e.progress_kind == "estimated"]
             self.assertTrue(estimated)
             self.assertLess(estimated[0].current, estimated[0].total)
+
+    def test_segment_progress_is_duration_weighted_estimated_and_stable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); source = root / "video.mp4"; source.write_bytes(b"x")
+            events = []
+            class SegmentAdapter(StubAdapter):
+                model_id = "segment-model"
+                model_revision = "r1"
+                def transcribe(self, request):
+                    request.progress(AdapterProgress(
+                        1000, 10000, "milliseconds", "whole-input", "estimated", 0
+                    ))
+                    request.progress(AdapterProgress(
+                        5000, 10000, "milliseconds", "whole-input", "estimated", 0
+                    ))
+                    # A changed total in the same epoch is ignored by the workflow.
+                    request.progress(AdapterProgress(
+                        6000, 12000, "milliseconds", "whole-input", "estimated", 0
+                    ))
+                    return super().transcribe(request)
+            service = LocalTranscriptionService(
+                adapter_factory=lambda name: SegmentAdapter([]), progress=events.append,
+                device_resolver=lambda requested: DeviceDecision(requested, "cpu", False),
+            )
+            def fake_extract(src, dest, **kwargs):
+                dest.parent.mkdir(parents=True, exist_ok=True); dest.write_bytes(b"RIFF"); return dest
+            with patch("asr_srt.workflow.probe_media", return_value=MediaInfo(10000, "aac")), \
+                 patch("asr_srt.workflow.extract_audio", side_effect=fake_extract):
+                service.run(JobConfig(source, cache_dir=root / "cache",
+                                      output_path=root / "out.srt", overwrite=True,
+                                      traditional=False))
+            running = [e for e in events if e.phase == "transcription"
+                       and e.status == "running" and e.current]
+            self.assertEqual([e.current for e in running], [1000, 5000])
+            self.assertTrue(all(e.total == 10000 for e in running))
+            self.assertTrue(all(e.progress_kind == "estimated" for e in running))
+            terminal = [e for e in events if e.phase == "transcription"
+                        and e.status == "completed"]
+            self.assertEqual(terminal[-1].current, terminal[-1].total)
+
+    def test_mps_retry_restarts_segment_progress_epoch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); source = root / "video.mp4"; source.write_bytes(b"x")
+            events = []
+            class RetryAdapter(StubAdapter):
+                model_id = "retry-model"
+                model_revision = "r1"
+                def transcribe(self, request):
+                    if request.device == "mps":
+                        request.progress(AdapterProgress(
+                            2850, 3000, "milliseconds", "whole-input", "estimated",
+                            request.progress_epoch,
+                        ))
+                        raise MPSCompatibilityError("MPS op unsupported")
+                    request.progress(AdapterProgress(
+                        950, 1000, "milliseconds", "whole-input", "estimated",
+                        request.progress_epoch,
+                    ))
+                    return super().transcribe(request)
+            service = LocalTranscriptionService(
+                adapter_factory=lambda name: RetryAdapter([]), progress=events.append,
+                device_resolver=lambda requested: DeviceDecision(requested, "mps", True),
+            )
+            def fake_extract(src, dest, **kwargs):
+                dest.parent.mkdir(parents=True, exist_ok=True); dest.write_bytes(b"RIFF"); return dest
+            with patch("asr_srt.workflow.probe_media", return_value=MediaInfo(4000, "aac")), \
+                 patch("asr_srt.workflow.extract_audio", side_effect=fake_extract):
+                service.run(JobConfig(source, cache_dir=root / "cache",
+                                      output_path=root / "out.srt", overwrite=True,
+                                      traditional=False))
+            measured = [e for e in events if e.phase == "transcription"
+                        and e.status == "running" and e.current]
+            self.assertEqual([(e.current, e.total) for e in measured], [(2850, 3000), (950, 1000)])
+            self.assertTrue(any("restarting transcription estimate on CPU" in e.message
+                                for e in events))
 
     def test_cli_progress_off_is_silent(self):
         class CliService:

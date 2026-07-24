@@ -6,7 +6,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 from asr_srt.errors import DependencyError, MediaError, ValidationError
-from asr_srt.media import extract_audio, parse_ffmpeg_progress, probe_media, validate_source
+from asr_srt.media import (
+    extract_audio, extract_audio_chunk, parse_ffmpeg_progress, probe_media, validate_source,
+)
 
 
 class MediaTests(unittest.TestCase):
@@ -83,6 +85,22 @@ class MediaTests(unittest.TestCase):
                 with self.assertRaises(MediaError):
                     extract_audio(source, destination, runner=failure)
             self.assertFalse(destination.exists())
+
+    def test_extract_chunk_uses_validated_boundaries_and_cleans_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "audio.wav"; source.write_bytes(b"RIFF")
+            destination = Path(tmp) / "chunks" / "0001.wav"
+            seen = []
+            def runner(command, **kwargs):
+                seen.append(command)
+                Path(command[-1]).write_bytes(b"RIFFchunk")
+                return subprocess.CompletedProcess(command, 0, "", "")
+            with patch("asr_srt.media.require_binary", return_value="/ffmpeg"):
+                extract_audio_chunk(source, destination, 1500, 4500, runner)
+            self.assertIn("1.500", seen[0])
+            self.assertIn("3.000", seen[0])
+            with self.assertRaises(ValidationError):
+                extract_audio_chunk(source, destination, 5, 5, runner)
 
     def test_progress_parser_supports_units_clock_and_malformed_records(self):
         values = list(parse_ffmpeg_progress([

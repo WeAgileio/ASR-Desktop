@@ -53,10 +53,11 @@ def normalize_result(raw: Any, duration_ms: int) -> Tuple[str, Tuple[TextUnit, .
                     start, end = item[0], item[1]
             if token is None and index < len(fallback_tokens):
                 token = fallback_tokens[index]
-            if token and start is not None and end is not None:
+            token_text = str(token or "").strip()
+            if token_text and start is not None and end is not None:
                 start_ms = max(0, min(duration_ms, _milliseconds(start)))
                 end_ms = max(start_ms, min(duration_ms, _milliseconds(end)))
-                units.append(TextUnit(str(token), start_ms, end_ms))
+                units.append(TextUnit(token_text, start_ms, end_ms))
     if not units:
         sentences = raw.get("sentence_info") or raw.get("segments") or []
         for sentence in sentences:

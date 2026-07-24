@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from .domain import SubtitleSettings
+from .longform import LongFormSettings
 from .errors import ValidationError
 
 SUPPORTED_MODELS = ("fun-asr-nano", "paraformer")
@@ -38,6 +39,7 @@ class JobConfig:
     overwrite: bool = False
     traditional: bool = True
     subtitle: SubtitleSettings = field(default_factory=SubtitleSettings)
+    long_form: LongFormSettings = field(default_factory=LongFormSettings)
 
     def __post_init__(self):
         if self.model not in SUPPORTED_MODELS:
@@ -57,4 +59,3 @@ class JobConfig:
     @property
     def resolved_output_path(self) -> Path:
         return self.output_path or self.input_path.with_suffix(".srt")
-

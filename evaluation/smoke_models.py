@@ -2,6 +2,7 @@
 """Run an explicit local model smoke test and print JSON metrics."""
 
 import argparse
+from dataclasses import asdict
 import json
 import os
 import platform
@@ -28,6 +29,7 @@ def main() -> int:
     with wave.open(str(args.audio), "rb") as stream:
         duration_ms = round(stream.getnframes() / stream.getframerate() * 1000)
     started = time.monotonic()
+    progress, spans = [], []
     result = create_adapter(args.model).transcribe(AdapterRequest(
         audio_path=args.audio,
         duration_ms=duration_ms,
@@ -35,6 +37,8 @@ def main() -> int:
         hotwords=("FunASR",),
         device=args.device,
         cache_key="smoke-test",
+        progress=progress.append,
+        stage_callback=lambda name, seconds: spans.append({"name": name, "seconds": seconds}),
     ))
     elapsed = time.monotonic() - started
     peak_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
@@ -52,6 +56,15 @@ def main() -> int:
         "text": result.full_text,
         "timestamp_units": len(result.units),
         "first_timestamp": result.units[0].__dict__ if result.units else None,
+        "segment_progress": [
+            asdict(value) for value in progress if value.scope == "whole-input"
+        ],
+        "performance_spans": spans,
+        "resource_metrics": {
+            "peak_rss_mb": round(peak_mb, 1),
+            "memory_pressure": None,
+            "swap_used_mb": None,
+        },
     }, ensure_ascii=False, indent=2))
     return 0
 

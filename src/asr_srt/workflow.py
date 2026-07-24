@@ -5,13 +5,18 @@ from typing import Callable, Dict, Optional, Tuple
 
 from .adapters import AdapterRequest, create_adapter
 from .adapters.base import AdapterProgress
-from .cache import TranscriptCache, cache_identity, content_fingerprint
+from .cache import PREPROCESSING_VERSION, TranscriptCache, cache_identity, content_fingerprint
 from .config import JobConfig
 from .device import DeviceDecision, resolve_device
 from .domain import SubtitleCue, Transcript
 from .errors import JobError, MPSCompatibilityError
-from .media import extract_audio, probe_media, probe_wav_duration, validate_source
-from .performance import PerformanceKey, PerformanceProfile, runtime_identity
+from .media import (detect_silence, extract_audio, extract_audio_chunk, probe_media,
+                    probe_wav_duration, validate_source)
+from .longform import merge_chunk_transcripts, plan_chunks
+from .longform_cache import LongFormCheckpointStore, LongFormIdentity, LongFormManifest
+from .performance import (LongFormPerformanceKey, LongFormPerformanceProfile,
+                          PerformanceKey, PerformanceProfile, PerformanceSpan,
+                          StageRecorder, duration_band, resource_snapshot, runtime_identity)
 from .progress import ProgressCallback, ProgressEvent
 from .srt import write_srt
 from .subtitle import convert_traditional, segment_transcript
@@ -24,6 +29,7 @@ class JobResult:
     transcript: Transcript
     cues: Tuple[SubtitleCue, ...]
     cache_hit: bool
+    performance_spans: Tuple[PerformanceSpan, ...] = ()
 
 
 class _PhaseEmitter:
@@ -123,16 +129,30 @@ class LocalTranscriptionService:
         self.device_resolver = device_resolver
 
     def run(self, config: JobConfig) -> JobResult:
+        recorder = StageRecorder()
         events = _PhaseEmitter(self.progress)
         phase = "validation"
         try:
             events.start(phase, "Validating input and dependencies")
             source = validate_source(config.input_path)
             media = probe_media(source)
-            decision = self.device_resolver(config.device)
             fingerprint = content_fingerprint(source)
             adapter = self.adapter_factory(config.model)
             selected_revision = str(getattr(adapter, "model_revision", "master"))
+            decision = self.device_resolver(config.device)
+            if config.device == "auto" and media.duration_ms > config.long_form.threshold_ms:
+                evidence = LongFormPerformanceProfile(config.cache_dir / "long-form-performance.json")
+                common = (str(getattr(adapter, "model_id", config.model)), selected_revision,
+                          runtime_identity())
+                band = duration_band(media.duration_ms / 1000)
+                cpu_key = LongFormPerformanceKey(*common, "cpu", band,
+                                                 config.long_form.version)
+                mps_key = LongFormPerformanceKey(*common, "mps", band,
+                                                 config.long_form.version)
+                selected = evidence.choose_device(cpu_key, mps_key)
+                if selected == "cpu":
+                    decision = DeviceDecision("auto", "cpu", False,
+                                              "CPU selected from compatible long-form evidence")
             key = cache_identity(
                 fingerprint, config.model, selected_revision, config.language, config.hotwords
             )
@@ -195,9 +215,16 @@ class LocalTranscriptionService:
                     events.start(phase, f"Transcribing on {decision.resolved}")
 
                 asr_started = time.monotonic()
-                transcript = self._transcribe(
-                    config, audio_path, duration_ms, key, decision, adapter, events
-                )
+                with recorder.measure("transcription-total"):
+                    if duration_ms > config.long_form.threshold_ms:
+                        transcript = self._transcribe_long_form(
+                            config, audio_path, duration_ms, key, fingerprint, decision,
+                            adapter, events, recorder, paths.directory,
+                        )
+                    else:
+                        transcript = self._transcribe(
+                            config, audio_path, duration_ms, key, decision, adapter, events, recorder
+                        )
                 processing_seconds = time.monotonic() - asr_started
                 cache.save(key, transcript)
                 record_key = PerformanceKey(
@@ -212,6 +239,20 @@ class LocalTranscriptionService:
                     processing_seconds,
                     successful=True,
                 )
+                span_names = [span.name for span in recorder.spans]
+                if (duration_ms > config.long_form.threshold_ms
+                        and "chunk-asr" in span_names
+                        and "checkpoint-resumed" not in span_names):
+                    snapshot = resource_snapshot()
+                    long_key = LongFormPerformanceKey(
+                        transcript.metadata.model_id, transcript.metadata.model_revision,
+                        runtime_identity(), transcript.metadata.device,
+                        duration_band(duration_ms / 1000), config.long_form.version,
+                    )
+                    LongFormPerformanceProfile(
+                        config.cache_dir / "long-form-performance.json"
+                    ).record(long_key, rtf=processing_seconds / (duration_ms / 1000),
+                             peak_rss_mb=snapshot.peak_rss_mb)
                 events.complete(phase, "Transcription completed")
             else:
                 events.skip("audio-extraction", "Skipped: compatible transcript cache hit")
@@ -229,7 +270,7 @@ class LocalTranscriptionService:
             events.start(phase, f"Writing {config.resolved_output_path}")
             output = write_srt(config.resolved_output_path, cues, overwrite=config.overwrite)
             events.complete(phase, f"Generated {output}")
-            return JobResult(output, paths.transcript, transcript, cues, cache_hit)
+            return JobResult(output, paths.transcript, transcript, cues, cache_hit, tuple(recorder.spans))
         except Exception as exc:
             events.fail(phase, str(exc))
             if isinstance(exc, JobError):
@@ -245,18 +286,37 @@ class LocalTranscriptionService:
         decision: DeviceDecision,
         adapter,
         events: _PhaseEmitter,
+        recorder: Optional[StageRecorder] = None,
     ) -> Transcript:
+        totals_by_epoch: Dict[int, float] = {}
+
         def adapter_progress(value: AdapterProgress) -> None:
-            if getattr(adapter, "progress_scope", "none") != "global" or value.scope != "global":
+            scope = getattr(value, "scope", "batch")
+            kind = getattr(value, "kind", "actual")
+            epoch = getattr(value, "epoch", 0)
+            if scope == "global" and kind == "actual":
+                active_adapter = getattr(adapter_progress, "active_adapter", adapter)
+                if getattr(active_adapter, "progress_scope", "none") != "global":
+                    return
+            elif scope == "whole-input" and kind == "estimated":
+                previous_total = totals_by_epoch.get(epoch)
+                if previous_total is not None and previous_total != value.total:
+                    return
+                totals_by_epoch[epoch] = value.total
+            else:
                 return
             events.update(
                 "transcription",
-                f"Transcribing on {decision.resolved}",
-                kind="actual",
+                f"Transcribing on {getattr(adapter_progress, 'active_device', decision.resolved)}"
+                + (" (segment estimate)" if kind == "estimated" else ""),
+                kind=kind,
                 current=value.current,
                 total=value.total,
                 unit=value.unit,
             )
+
+        adapter_progress.active_adapter = adapter
+        adapter_progress.active_device = decision.resolved
 
         request = AdapterRequest(
             audio_path,
@@ -266,15 +326,108 @@ class LocalTranscriptionService:
             decision.resolved,
             key,
             adapter_progress,
+            0,
+            recorder.record if recorder else None,
         )
         try:
             return adapter.transcribe(request)
         except MPSCompatibilityError:
             if not decision.fallback_allowed:
                 raise
-            events.start("transcription", "MPS failed; reloading model on CPU")
-            cpu_request = replace(request, device="cpu")
-            return self.adapter_factory(config.model).transcribe(cpu_request)
+            events.start("transcription", "MPS failed; restarting transcription estimate on CPU")
+            cpu_adapter = self.adapter_factory(config.model)
+            adapter_progress.active_adapter = cpu_adapter
+            adapter_progress.active_device = "cpu"
+            cpu_request = replace(
+                request, device="cpu", progress_epoch=request.progress_epoch + 1
+            )
+            return cpu_adapter.transcribe(cpu_request)
+
+    def _transcribe_long_form(
+        self, config, audio_path, duration_ms, key, fingerprint, decision, adapter,
+        events, recorder, job_directory,
+    ):
+        with recorder.measure("silence-planning"):
+            silences = detect_silence(
+                audio_path, duration_ms, config.long_form.minimum_silence_ms
+            )
+            plan = plan_chunks(duration_ms, silences, config.long_form)
+        store = LongFormCheckpointStore(job_directory)
+
+        def identity_for(active_adapter, device):
+            return LongFormIdentity(
+                fingerprint, PREPROCESSING_VERSION, plan.identity,
+                str(getattr(active_adapter, "model_id", config.model)),
+                str(getattr(active_adapter, "model_revision", "master")), device,
+                config.language, config.hotwords,
+            )
+
+        def run_attempt(active_adapter, device, epoch):
+            identity = identity_for(active_adapter, device)
+            manifest = store.load_manifest(identity, plan)
+            if manifest is None:
+                manifest = LongFormManifest(identity, duration_ms, plan.chunks)
+                store.save_manifest(manifest)
+            checkpoints = store.load_valid(identity, plan)
+            if checkpoints:
+                recorder.record("checkpoint-resumed", 0.0)
+            transcripts = {index: item.transcript for index, item in checkpoints.items()}
+            committed = sum(chunk.duration_ms - chunk.overlap_ms for chunk in plan.chunks
+                            if chunk.index in transcripts)
+            if checkpoints:
+                events.update("transcription",
+                              f"Resuming {len(checkpoints)}/{len(plan.chunks)} chunks on {device}",
+                              kind="estimated", current=min(committed, duration_ms * .95),
+                              total=duration_ms, unit="milliseconds")
+            pending = [chunk for chunk in plan.chunks if chunk.index not in transcripts]
+            if pending:
+                with active_adapter.open_session(device, recorder.record) as session:
+                    for chunk in pending:
+                        chunk_path = store.root / "audio" / f"{chunk.index:04d}.wav"
+                        try:
+                            extract_audio_chunk(audio_path, chunk_path, chunk.start_ms, chunk.end_ms)
+                            base = committed
+                            def chunk_progress(value, chunk=chunk, base=base):
+                                if getattr(value, "scope", "") != "whole-input":
+                                    return
+                                fraction = value.current / value.total
+                                current = base + fraction * (chunk.duration_ms - chunk.overlap_ms)
+                                events.update(
+                                    "transcription",
+                                    f"Chunk {chunk.index + 1}/{len(plan.chunks)} "
+                                    f"{chunk.start_ms/1000:.0f}-{chunk.end_ms/1000:.0f}s on {device}",
+                                    kind="estimated", current=min(current, duration_ms * .95),
+                                    total=duration_ms, unit="milliseconds",
+                                )
+                            request = AdapterRequest(
+                                chunk_path, chunk.duration_ms, config.language, config.hotwords,
+                                device, identity.digest, chunk_progress, epoch, recorder.record,
+                            )
+                            with recorder.measure("chunk-asr"):
+                                value = session.transcribe(request)
+                            store.save_checkpoint(identity, chunk, value)
+                            transcripts[chunk.index] = value
+                            committed += chunk.duration_ms - chunk.overlap_ms
+                            events.update(
+                                "transcription", f"Committed chunk {chunk.index + 1}/{len(plan.chunks)}",
+                                kind="estimated", current=min(committed, duration_ms * .95),
+                                total=duration_ms, unit="milliseconds",
+                            )
+                        finally:
+                            try:
+                                chunk_path.unlink()
+                            except FileNotFoundError:
+                                pass
+            with recorder.measure("chunk-merge"):
+                return merge_chunk_transcripts(plan, transcripts, cache_key=key).transcript
+
+        try:
+            return run_attempt(adapter, decision.resolved, 0)
+        except MPSCompatibilityError:
+            if not decision.fallback_allowed:
+                raise
+            events.start("transcription", "MPS failed; resuming long-form transcription on CPU")
+            return run_attempt(self.adapter_factory(config.model), "cpu", 1)
 
 
 __all__ = ["JobResult", "LocalTranscriptionService", "ProgressEvent"]

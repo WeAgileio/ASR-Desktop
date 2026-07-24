@@ -24,8 +24,23 @@
       "id": "long-video",
       "path": "/absolute/path/to/long-video.mp4",
       "category": "long-form video",
-      "expected_terms": []
+      "expected_terms": [],
+      "screening_minutes": "10-15",
+      "validation_minutes": "30-60",
+      "final_resume_hours": 2,
+      "matrix": {
+        "models": ["fun-asr-nano", "paraformer"],
+        "devices": ["cpu", "mps"],
+        "batch_size_s": [120, 180, 300, 450],
+        "batch_size_threshold_s": [30, 60]
+      },
+      "guardrails": {
+        "minimum_rtf_improvement": 0.1,
+        "maximum_peak_rss_increase": 0.1,
+        "swap_growth_allowed": false,
+        "transcript_regression_allowed": false,
+        "timestamp_regression_allowed": false
+      }
     }
   ]
 }
-
