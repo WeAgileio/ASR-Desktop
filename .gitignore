@@ -25,3 +25,5 @@ evaluation/private/
 *.wav
 *.WAV
 *.srt
+.cursor/commands/
+.cursor/skills/
