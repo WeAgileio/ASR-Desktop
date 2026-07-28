@@ -85,19 +85,23 @@ The system SHALL convert model-specific output into a versioned transcript conta
 - **THEN** the system rejects the output as incompatible and preserves diagnostic information without creating a successful cache entry
 
 ### Requirement: Cache completed recognition results
-The system SHALL persist completed transcripts atomically and SHALL reuse a compatible transcript when the input content, model revision, language, hotwords, audio preprocessing version, and recognition-affecting parameters match.
+The system SHALL persist completed transcripts atomically, SHALL reuse a compatible completed transcript when the input content, model revision, language, hotwords, audio preprocessing version, and recognition-affecting parameters match, and SHALL preserve compatible atomic chunk checkpoints for resumable long-form transcription without treating an incomplete checkpoint set as a completed transcript.
 
-#### Scenario: Compatible cache exists
-- **WHEN** the user reruns recognition with a matching cache identity
+#### Scenario: Compatible completed cache exists
+- **WHEN** the user reruns recognition with a matching completed transcript cache identity
 - **THEN** the system skips audio recognition and supplies the cached transcript to subtitle generation
 
+#### Scenario: Compatible long-form checkpoints exist
+- **WHEN** no completed transcript exists but one or more chunk checkpoints match the source, chunk plan, model revision, device compatibility, language, hotwords, audio preprocessing, and recognition-affecting settings
+- **THEN** the system reuses only those valid completed chunks and resumes recognition at the first chunk without a valid checkpoint
+
 #### Scenario: Recognition setting changes
-- **WHEN** the user changes the model, model revision, language, hotwords, or another recognition-affecting parameter
-- **THEN** the system does not reuse an incompatible transcript cache
+- **WHEN** the user changes the model, model revision, language, hotwords, chunk plan, audio preprocessing, or another recognition-affecting parameter
+- **THEN** the system does not reuse an incompatible transcript cache or chunk checkpoint
 
 #### Scenario: Job is interrupted while saving
-- **WHEN** the process terminates before atomic transcript persistence completes
-- **THEN** the partial result is not treated as a valid completed transcript on the next run
+- **WHEN** the process terminates before atomic transcript or chunk-checkpoint persistence completes
+- **THEN** the partial write is not treated as a valid completed transcript or valid chunk checkpoint on the next run
 
 ### Requirement: Report job progress and failures
 The system SHALL report the current phase of validation, audio extraction, model preparation, transcription, subtitle generation, and output writing, and SHALL return a non-zero result with a concise diagnostic when a phase fails.
