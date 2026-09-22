@@ -1,0 +1,42 @@
+[
+  {
+    "name": "nano-cpu-talk-64m",
+    "duration_seconds": 3876.373,
+    "workload_unit": "milliseconds",
+    "chunk_boundaries_seconds": [0, 1200, 2400, 3876.373],
+    "segment_fractions": [0.01, 0.18, 0.52, 0.91],
+    "historical_rtfs": [0.75, 0.80],
+    "checkpoint": {"committed_seconds": 1200, "processing_seconds": 900, "resumed": false},
+    "final_processing_seconds": 3056
+  },
+  {
+    "name": "nano-cpu-interview-61m-resume",
+    "duration_seconds": 3694.357,
+    "workload_unit": "segments",
+    "chunk_boundaries_seconds": [0, 900, 1800, 2700, 3694.357],
+    "segment_fractions": [0.005, 0.12, 0.49, 0.88],
+    "historical_rtfs": [0.72, 0.78],
+    "checkpoint": {"committed_seconds": 1800, "processing_seconds": 1400, "resumed": true},
+    "final_processing_seconds": 2781
+  },
+  {
+    "name": "nano-cpu-forum-82m",
+    "duration_seconds": 4970.542,
+    "workload_unit": "items",
+    "chunk_boundaries_seconds": [0, 1000, 2000, 3200, 4970.542],
+    "segment_fractions": [0.002, 0.22, 0.57, 0.93],
+    "historical_rtfs": [0.68, 0.74, 0.79],
+    "checkpoint": {"committed_seconds": 2000, "processing_seconds": 1350, "resumed": false},
+    "final_processing_seconds": 3492
+  },
+  {
+    "name": "nano-cpu-slow-load-63m",
+    "duration_seconds": 3830.997,
+    "workload_unit": "milliseconds",
+    "chunk_boundaries_seconds": [0, 1000, 2000, 3000, 3830.997],
+    "segment_fractions": [0.001, 0.08, 0.41, 0.86],
+    "historical_rtfs": [0.70, 0.75, 0.79, 0.96],
+    "checkpoint": {"committed_seconds": 1000, "processing_seconds": 1000, "resumed": true},
+    "final_processing_seconds": 3679
+  }
+]

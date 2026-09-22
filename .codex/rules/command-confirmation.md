@@ -1,11 +1,10 @@
 ---
-description: Codex 專案相關規定
+description: 相關規定
 globs:
   - "**/*"
 alwaysApply: true
 ---
 
-# Git 與發版規則
 
 ## Git 提交流程規則
 
@@ -15,12 +14,17 @@ alwaysApply: true
 2. `git commit`：使用符合本檔案規則的 Commits 規範建立提交。
 3. `git push`：最後才把本地提交推送到遠端。
 
-- 若使用者已經手動完成其中部分步驟（例如先自己 pull），你可以跳過已完成的步驟，但 **絕對不得在未 pull 的情況下直接進行 `commit → push` 或 `tag → push tag`**。
+- 若使用者已經手動完成其中部分步驟（例如先自己 pull），你可以跳過已完成的步驟，  
+ 但 **絕對不得在未 pull 的情況下直接進行 `commit → push` 或 `tag → push tag`**。
 - 在實際執行任何 git 指令前，**必須先用自然語言向使用者說明你打算執行的步驟與指令，並等待使用者確認後再執行**。
+
+---
 
 ## Commits 規範
 
 ### 1. Commit 訊息格式
+
+請使用以下格式：
 
 ```text
 <type>[可選 scope]: <description>
@@ -30,7 +34,11 @@ alwaysApply: true
 [可選 footer(s)]
 ```
 
+---
+
 ### 2. 類型（type）
+
+優先使用以下類型：
 
 - **feat**: 新功能
 - **fix**: 錯誤修復
@@ -43,10 +51,14 @@ alwaysApply: true
 - **ci**: CI/CD 流程變更
 - **chore**: 雜項或維護性工作（不影響產品功能）
 
+---
+
 ### 3. Scope（範圍）
 
-- scope 為 **可選**。
-- 若有幫助，請使用 **簡短名詞** 描述影響範圍。
+- scope 為 **可選**
+- 若有幫助，請使用 **簡短名詞** 描述影響範圍
+
+範例：
 
 ```text
 feat(auth): 新增 SSO 登入
@@ -54,12 +66,23 @@ fix(api): 處理空 payload
 docs(readme): 更新安裝步驟
 ```
 
+---
+
 ### 4. Description（描述）
 
-- 預設使用 **英文小寫**（除非團隊規範改為中文）。
-- 描述需 **簡潔且具體**。
-- **不要加句號結尾**。
-- 使用 **祈使句（imperative）**。
+- 預設使用 **英文小寫**（除非團隊規範改為中文）
+- 描述需 **簡潔且具體**
+- **不要加句號結尾**
+- 使用 **祈使句（imperative）**
+
+建議寫法：
+
+```text
+新增使用者頭像上傳
+修正 webhook 逾時的重試邏輯
+```
+
+---
 
 ### 5. Breaking Changes（破壞性變更）
 
@@ -76,6 +99,8 @@ refactor(core)!: 調整 plugin 生命週期鉤子
 BREAKING CHANGE: 說明變更內容、影響對象、遷移方式
 ```
 
+---
+
 ### 6. Body（內文）
 
 僅在「有價值」時補充，內容可以包含：
@@ -84,7 +109,11 @@ BREAKING CHANGE: 說明變更內容、影響對象、遷移方式
 - 重要實作細節
 - 取捨或副作用
 
+---
+
 ### 7. Footer（附註）
+
+常見用途：
 
 ```text
 BREAKING CHANGE: 說明破壞性變更內容
@@ -92,18 +121,26 @@ Refs: #123
 Closes: #456
 ```
 
+---
+
 ### 8. 選擇規則（Selection Rules）
 
-- 若同時包含功能與修復，優先拆成多個 commit。
-- 若只能寫一個，選主要意圖。
-- 不要捏造 diff 中不存在的變更。
-- 若使用者只要 commit message，不要多餘說明。
+- 若同時包含功能與修復 → **優先拆成多個 commit**
+- 若只能寫一個 → **選主要意圖**
+- 不要捏造 diff 中不存在的變更
+- 若使用者只要 commit message → **不要多餘說明**
+
+---
 
 ### 9. 輸出規則（Output Rules）
 
-1. 第一行必須符合 Conventional Commit 格式。
-2. 僅在必要時補 body / footer。
-3. 預設輸出為純文字（除非另有要求）。
+當被要求產生 commit message 時：
+
+1. 第一行必須符合 Conventional Commit 格式
+2. 僅在必要時補 body / footer
+3. 預設輸出為純文字（除非另有要求）
+
+---
 
 ### 10. 良好範例
 
@@ -121,6 +158,8 @@ feat(api)!: 移除舊版 token 端點
 BREAKING CHANGE: 客戶端須從 /v1/token 遷移至 /v2/token
 ```
 
+---
+
 ### 11. 不良範例
 
 ```text
@@ -130,17 +169,23 @@ BREAKING CHANGE: 客戶端須從 /v1/token 遷移至 /v2/token
 feat: 新增了新功能（description 勿用大寫開頭、勿用過去式）
 ```
 
+---
+
 ## Release 規則
 
 當你要協助建立新版本（例如：打 tag、建立 GitHub Release、或在討論中明確提到「release / 發版 / 上線」）時，必須同時確保：
 
-- `README.md` 中有對應這次版本的 **Release Notes** 區塊或條目，至少包含本次版本的簡短功能說明；若有破壞性修改需特別標註，且不要描述技術性調整。
-- 若 `README.md` 尚未有 Release 區塊，先在底部新增「Release Notes」章節，再加入本次版本說明。
-- 建立或推送 tag、建立 GitHub Release 前，先確認或補齊上述 Release Notes。
-- 產生 release 描述或 changelog 時，優先復用或同步 `README.md` 的 Release Notes，避免內容不一致。
-- 使用者明確說「發版」時，預設同時完成 **Git 發版 + GitHub Release**，除非使用者明確表示不要 GitHub Release。
+- `README.md` 中有對應這次版本的 **Release Notes** 區塊或條目，內容至少包含：
+  - 本次版本的簡短說明（例如：新增了哪些主要功能或修正了哪些問題）
+  - 若有破壞性修改，需在這裡特別標註
+  - 不要描述技術性的調整，只需要描述功能性的
+- 若 `README.md` 尚未有 Release 區塊，先幫使用者在 README 底部加上一個簡單的「Release Notes」章節，然後再加入這次版本的說明。
+- 在建立/推送 tag 及建立 GitHub Release 前，先確認（或補齊）上述 `README.md` 的 Release Notes
+- 在幫忙產生 release 描述或 changelog 時，**優先復用或同步到 `README.md` 的 Release Notes**，避免兩邊內容不一致。
+- 使用者只要明確說「發版」（即使沒特別拆開講），預設視為要同時完成 **Git 發版 + GitHub Release**，不可只做其中一邊。
 - 預設執行順序：
-  1. 整理版本內容，必要時更新 `README.md` 版本紀錄與 `package.json` 版本號。
-  2. Git 發版：`git pull` → `commit` → 建立並推送與 `package.json` 一致的 **annotated tag** → `push` / `push --tags`。
-  3. GitHub Release：標籤存在於遠端後，以 `gh release create <tag>` 建立 Release；若本機無 `gh` 或未登入，需向使用者說明並協助完成，不可略過此步。
-- 若缺少版本號、tag 命名規則等必要資訊，先向使用者確認；資訊齊全則完整執行到 Git 與 GitHub Release 發布完成。
+  1. 整理版本內容（必要時更新 `README.md` 版本紀錄／`package.json` 版本號）。
+  2. Git 發版：`git pull` → `commit` → 建立並推送 **annotated tag**（例如 `v1.2.0`，與 `package.json` 一致）→ `push` / `push --tags`。
+  3. **GitHub Release**：在標籤已於遠端存在後，使用 **`gh release create <tag>`** 建立 Release（標題可用版本號；內文優先自 `README.md` 該版條目整理，與 README 一致）。若本機無 `gh` 或未登入，須向使用者說明並改請其於網頁建立，或協助安裝／登入後再執行；**不可略過此步**（除非使用者當下明確表示不要 GitHub Release）。
+- 若任一步驟缺少必要資訊（例如版本號、tag 命名規則），先向使用者確認；若資訊齊全則直接完整執行到 **git、GitHub Release** 發布完成。
+

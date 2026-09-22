@@ -1,0 +1,9 @@
+**
+!src/
+!src/asr_service/
+!src/asr_service/**
+!deployment/
+!deployment/Dockerfile
+!deployment/requirements/
+!deployment/requirements/service.lock
+**/__pycache__/

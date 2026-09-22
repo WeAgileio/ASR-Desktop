@@ -1,0 +1,122 @@
+name: Build and publish container
+
+on:
+  pull_request:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  container:
+    # Feature branches are checked through PRs; manual publishing is default-branch only.
+    if: >-
+      github.event_name == 'pull_request' ||
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch) ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set image name
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.image.outputs.name }}
+          flavor: latest=false
+          tags: |
+            type=sha,format=long
+            type=ref,event=tag
+            type=ref,event=pr
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Validate deployment Compose
+        env:
+          ASR_IMAGE: ${{ steps.image.outputs.name }}:validation
+          ASR_ADMIN_PASSWORD: validation-only-admin-password
+          ASR_WORKER_TOKEN: validation-only-worker-token
+          ASR_SIGNING_KEY: validation-only-signing-key
+          ASR_DASHBOARD_PASSWORD: validation-only-dashboard-password
+        run: docker compose -f deployment/compose.ghcr.yaml config --quiet
+
+      - name: Build test image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deployment/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: asr-service:ci
+          cache-from: type=gha,scope=asr-service
+
+      - name: Test service in container
+        run: >-
+          docker run --rm
+          --mount type=bind,src="$GITHUB_WORKSPACE/tests/service",dst=/tests,readonly
+          --mount type=bind,src="$GITHUB_WORKSPACE/src/asr_srt",dst=/app/asr_srt,readonly
+          asr-service:ci python -m unittest discover -s /tests -v
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build both architectures and publish
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deployment/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=asr-service
+          cache-to: type=gha,mode=max,scope=asr-service
+
+      - name: Write deployment reference
+        if: github.event_name != 'pull_request'
+        env:
+          IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        shell: bash
+        run: |
+          {
+            echo '### Published image'
+            echo '```text'
+            echo "ASR_IMAGE=$IMAGE@$DIGEST"
+            echo '```'
+            echo 'Tags:'
+            echo '```text'
+            echo "$TAGS"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

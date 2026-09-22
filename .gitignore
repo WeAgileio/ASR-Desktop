@@ -1,5 +1,7 @@
 .DS_Store
 .venv/
+.venv-service/
+.venv-worker/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -27,3 +29,9 @@ evaluation/private/
 *.srt
 .cursor/commands/
 .cursor/skills/
+
+# Local transcripts, caches, and execution logs
+outputs/
+
+# Local inference cache
+.cache/

@@ -1,0 +1,10 @@
+{
+  "ASR_API_URL": "http://127.0.0.1:8090",
+  "ASR_REDIS_URL": "redis://127.0.0.1:16379/0",
+  "ASR_WORKER_TOKEN_FILE": "/absolute/local/path/worker-token.txt",
+  "ASR_WORKSPACE": "/absolute/local/path/asr-workspace",
+  "ASR_DRIVE_AUTH": "service_account",
+  "GOOGLE_APPLICATION_CREDENTIALS": "/absolute/local/path/service-account.json",
+  "ASR_RETENTION_DAYS": "7",
+  "ASR_MIN_FREE_BYTES": "5368709120"
+}

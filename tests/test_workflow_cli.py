@@ -78,8 +78,10 @@ class WorkflowCliTests(unittest.TestCase):
                     service.run(config)
             self.assertEqual(failing.loads, 1)
             succeeding = LongAdapter()
+            resumed_events = []
             service = LocalTranscriptionService(
                 adapter_factory=lambda name: succeeding,
+                progress=resumed_events.append,
                 device_resolver=lambda requested: DeviceDecision(requested, "cpu", False),
             )
             with patch("asr_srt.workflow.probe_media", return_value=MediaInfo(5000, "aac")), \
@@ -90,6 +92,11 @@ class WorkflowCliTests(unittest.TestCase):
             self.assertEqual(succeeding.loads, 1)
             self.assertEqual(len(succeeding.calls), 2)
             self.assertEqual(result.transcript.duration_ms, 5000)
+            resume_updates = [e for e in resumed_events if e.phase == "transcription"
+                              and e.status == "running" and "Resuming" in e.message]
+            self.assertEqual(len(resume_updates), 1)
+            self.assertGreater(resume_updates[0].current, 0)
+            self.assertIsNotNone(resume_updates[0].eta_seconds)
             result.transcript_path.unlink()
             checkpoint_only = LongAdapter()
             service = LocalTranscriptionService(
@@ -274,6 +281,37 @@ class WorkflowCliTests(unittest.TestCase):
                          and e.status == "running" and e.progress_kind == "estimated"]
             self.assertTrue(estimated)
             self.assertLess(estimated[0].current, estimated[0].total)
+            self.assertEqual(estimated[0].eta_seconds, 8)
+
+    def test_segment_percentage_retains_workload_units_and_independent_eta(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); source = root / "video.mp4"; source.write_bytes(b"x")
+            class SegmentAdapter(StubAdapter):
+                model_id = "segment-eta"; model_revision = "r1"
+                def transcribe(self, request):
+                    request.progress(AdapterProgress(
+                        2500, 10000, "milliseconds", "whole-input", "estimated", 0
+                    ))
+                    return super().transcribe(request)
+            profile = PerformanceProfile(root / "cache" / "performance.json")
+            history_key = PerformanceKey("segment-eta", "r1", "cpu", runtime_identity())
+            profile.record(history_key, 100, 50); profile.record(history_key, 100, 50)
+            events = []
+            service = LocalTranscriptionService(
+                adapter_factory=lambda name: SegmentAdapter([]), progress=events.append,
+                device_resolver=lambda requested: DeviceDecision(requested, "cpu", False),
+            )
+            def fake_extract(src, dest, **kwargs):
+                dest.parent.mkdir(parents=True, exist_ok=True); dest.write_bytes(b"RIFF"); return dest
+            with patch("asr_srt.workflow.probe_media", return_value=MediaInfo(10000, "aac")), \
+                 patch("asr_srt.workflow.extract_audio", side_effect=fake_extract):
+                service.run(JobConfig(source, cache_dir=root / "cache",
+                                      output_path=root / "out.srt", overwrite=True,
+                                      traditional=False))
+            segment = [e for e in events if e.phase == "transcription"
+                       and e.status == "running" and e.unit == "milliseconds"][-1]
+            self.assertEqual((segment.current, segment.total), (2500, 10000))
+            self.assertAlmostEqual(segment.eta_seconds, 3.75)
 
     def test_segment_progress_is_duration_weighted_estimated_and_stable(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,4 +1,5 @@
 import json
+import math
 import platform
 import resource
 import sys
@@ -189,11 +190,18 @@ class PerformanceProfile:
         except (OSError, ValueError, TypeError, json.JSONDecodeError):
             return {}
 
-    def estimate_seconds(self, key: PerformanceKey, audio_seconds: float) -> Optional[float]:
+    def estimate_rtf(self, key: PerformanceKey) -> Optional[float]:
         values = self._load().get(key.identity, [])
-        if len(values) < MIN_SAMPLES or audio_seconds <= 0:
+        if len(values) < MIN_SAMPLES:
             return None
-        return median(values) * audio_seconds
+        estimate = median(values)
+        return estimate if math.isfinite(estimate) and estimate > 0 else None
+
+    def estimate_seconds(self, key: PerformanceKey, audio_seconds: float) -> Optional[float]:
+        estimate = self.estimate_rtf(key)
+        if estimate is None or not math.isfinite(audio_seconds) or audio_seconds <= 0:
+            return None
+        return estimate * audio_seconds
 
     def record(
         self,
@@ -227,3 +235,57 @@ class PerformanceProfile:
         except OSError:
             return False
         return True
+
+
+class EtaEstimator:
+    """Estimate remaining wall time without coupling ETA to progress units."""
+
+    def __init__(self, audio_seconds: float, historical_rtf: Optional[float] = None):
+        self.audio_seconds = self._positive(audio_seconds)
+        self.historical_rtf = self._positive(historical_rtf)
+        self.effective_rtf = self.historical_rtf
+        self._smoothed_eta: Optional[float] = None
+
+    @staticmethod
+    def _positive(value: Optional[float]) -> Optional[float]:
+        if value is None or not isinstance(value, (int, float)):
+            return None
+        value = float(value)
+        return value if math.isfinite(value) and value > 0 else None
+
+    @property
+    def initial_eta_seconds(self) -> Optional[float]:
+        if self.audio_seconds is None or self.historical_rtf is None:
+            return None
+        return self.audio_seconds * self.historical_rtf
+
+    def recalibrate(self, committed_audio_seconds: float, processing_seconds: float) -> Optional[float]:
+        committed = self._positive(committed_audio_seconds)
+        processing = self._positive(processing_seconds)
+        if self.audio_seconds is None or committed is None or processing is None:
+            return self.effective_rtf
+        observed = processing / committed
+        confidence = min(1.0, committed / self.audio_seconds)
+        if self.historical_rtf is None:
+            self.effective_rtf = observed
+        else:
+            self.effective_rtf = self.historical_rtf * (1.0 - confidence) + observed * confidence
+        self._smoothed_eta = None
+        return self.effective_rtf
+
+    def remaining_seconds(self, completed_audio_seconds: float, *, smooth: bool = True) -> Optional[float]:
+        if self.audio_seconds is None or self.effective_rtf is None:
+            return None
+        if not isinstance(completed_audio_seconds, (int, float)) or not math.isfinite(completed_audio_seconds):
+            return None
+        remaining_audio = max(0.0, self.audio_seconds - max(0.0, float(completed_audio_seconds)))
+        estimate = remaining_audio * self.effective_rtf
+        if remaining_audio > 0:
+            estimate = max(0.1, estimate)
+        if not smooth or self._smoothed_eta is None:
+            self._smoothed_eta = estimate
+            return estimate
+        lower = self._smoothed_eta * 0.75
+        upper = self._smoothed_eta * 1.25
+        self._smoothed_eta = min(upper, max(lower, estimate))
+        return self._smoothed_eta

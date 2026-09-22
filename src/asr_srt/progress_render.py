@@ -1,19 +1,29 @@
 import sys
 import threading
 import time
+import math
 from typing import Dict, Optional, TextIO, Tuple
 
 from .progress import ProgressEvent
 
 
 def _snapshot(event: ProgressEvent, received_at: float) -> Tuple[float, Optional[float], Optional[float]]:
+    heartbeat_elapsed = 0.0
     elapsed = event.elapsed_seconds
     if event.status == "running":
-        elapsed += max(0.0, time.monotonic() - received_at)
+        heartbeat_elapsed = max(0.0, time.monotonic() - received_at)
+        elapsed += heartbeat_elapsed
     current, eta = event.current, event.eta_seconds
-    if event.progress_kind == "estimated" and event.total is not None:
-        current = min(max(current or 0.0, elapsed), event.total * 0.95)
-        eta = max(0.0, event.total - current)
+    if eta is not None:
+        eta = max(0.0, eta - heartbeat_elapsed) if math.isfinite(eta) else None
+    if (
+        event.status == "running"
+        and event.progress_kind == "estimated"
+        and event.unit == "seconds"
+        and event.total is not None
+        and current is not None
+    ):
+        current = min(current + heartbeat_elapsed, event.total * 0.95)
     return elapsed, current, eta
 
 

@@ -5,10 +5,11 @@ import json
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from asr_srt.performance import (
-    LongFormPerformanceKey, LongFormPerformanceProfile, PerformanceKey,
+    EtaEstimator, LongFormPerformanceKey, LongFormPerformanceProfile, PerformanceKey,
     PerformanceProfile, PerformanceSpan, StageRecorder, duration_band, resource_snapshot,
     tuning_eligible,
 )
@@ -17,6 +18,7 @@ from asr_srt.progress_render import (
     NullProgressRenderer,
     PlainProgressRenderer,
     create_progress_renderer,
+    _snapshot,
 )
 
 
@@ -102,6 +104,69 @@ class ProgressPerformanceTests(unittest.TestCase):
             self.assertTrue(profile.record(key, 100, 10))
             self.assertEqual(json.loads(path.read_text())["version"], 1)
 
+    def test_snapshot_never_interprets_workload_units_as_eta_seconds(self):
+        for unit, current, total in (("milliseconds", 1_000, 10_000), ("items", 1, 10), ("segments", 2, 20)):
+            event = ProgressEvent(
+                "asr", "working", progress_kind="estimated",
+                current=current, total=total, unit=unit,
+            )
+            with mock.patch("asr_srt.progress_render.time.monotonic", return_value=105):
+                _, rendered_current, eta = _snapshot(event, 100)
+            self.assertEqual(rendered_current, current)
+            self.assertIsNone(eta)
+
+    def test_snapshot_preserves_explicit_eta_and_counts_down_only_wall_time(self):
+        event = ProgressEvent(
+            "asr", "working", progress_kind="estimated",
+            current=1_000, total=10_000, unit="milliseconds", eta_seconds=90,
+        )
+        with mock.patch("asr_srt.progress_render.time.monotonic", return_value=105):
+            elapsed, current, eta = _snapshot(event, 100)
+        self.assertEqual((elapsed, current, eta), (5, 1_000, 85))
+        completed = ProgressEvent(
+            "asr", "done", status="completed", progress_kind="actual",
+            current=10, total=10, unit="items", elapsed_seconds=12, eta_seconds=0,
+        )
+        self.assertEqual(_snapshot(completed, 0), (12, 10, 0))
+        invalid = ProgressEvent("asr", "working", eta_seconds=float("inf"))
+        self.assertIsNone(_snapshot(invalid, time.monotonic())[2])
+
+    def test_time_based_estimated_progress_advances_without_fabricating_eta(self):
+        event = ProgressEvent(
+            "asr", "working", progress_kind="estimated",
+            current=10, total=100, unit="seconds",
+        )
+        with mock.patch("asr_srt.progress_render.time.monotonic", return_value=105):
+            _, current, eta = _snapshot(event, 100)
+        self.assertEqual(current, 15)
+        self.assertIsNone(eta)
+
+    def test_eta_estimator_uses_robust_history_and_bounded_smoothing(self):
+        estimator = EtaEstimator(1_000, historical_rtf=0.5)
+        self.assertEqual(estimator.initial_eta_seconds, 500)
+        first = estimator.remaining_seconds(1)
+        later = estimator.remaining_seconds(900)
+        self.assertGreater(first, 400)
+        self.assertGreaterEqual(later, first * 0.75)
+        recalibrated = estimator.recalibrate(500, 400)
+        self.assertAlmostEqual(recalibrated, 0.65)
+        self.assertAlmostEqual(estimator.remaining_seconds(500, smooth=False), 325)
+        self.assertGreater(estimator.remaining_seconds(999.99, smooth=False), 0)
+
+    def test_eta_estimator_rejects_invalid_or_insufficient_evidence(self):
+        for value in (None, 0, -1, float("inf"), float("nan")):
+            estimator = EtaEstimator(100, value)
+            self.assertIsNone(estimator.initial_eta_seconds)
+            self.assertIsNone(estimator.remaining_seconds(10))
+
+    def test_eta_estimator_allows_honest_checkpoint_increase_without_early_zero(self):
+        estimator = EtaEstimator(100, 0.2)
+        before = estimator.remaining_seconds(50, smooth=False)
+        estimator.recalibrate(50, 40)
+        after = estimator.remaining_seconds(50, smooth=False)
+        self.assertGreater(after, before)
+        self.assertGreater(estimator.remaining_seconds(99.999, smooth=False), 0)
+
     def test_plain_renderer_throttles_heartbeats_and_has_no_ansi(self):
         stream = io.StringIO()
         renderer = PlainProgressRenderer(stream, heartbeat_interval=0.05)
@@ -115,6 +180,22 @@ class ProgressPerformanceTests(unittest.TestCase):
         self.assertIn("[asr] running", output)
         self.assertIn("[asr] completed", output)
         self.assertLessEqual(output.count("[asr]"), 3)
+
+    def test_plain_renderer_shows_explicit_eta_and_omits_missing_eta(self):
+        stream = io.StringIO()
+        renderer = PlainProgressRenderer(stream, heartbeat_interval=60)
+        renderer(ProgressEvent(
+            "asr", "with estimate", progress_kind="estimated",
+            current=1, total=10, unit="segments", eta_seconds=90,
+        ))
+        renderer(ProgressEvent(
+            "asr", "done", status="completed", progress_kind="actual",
+            current=10, total=10, unit="segments", elapsed_seconds=10,
+        ))
+        renderer.close()
+        lines = stream.getvalue().splitlines()
+        self.assertIn("ETA 01:30", lines[0])
+        self.assertNotIn("ETA", lines[-1])
 
     def test_renderer_factory_auto_and_off(self):
         stream = io.StringIO()
@@ -137,6 +218,24 @@ class ProgressPerformanceTests(unittest.TestCase):
         self.assertIn("transcription", output)
         self.assertIn("completed", output)
         self.assertLess(len(output), 20000)
+
+    @unittest.skipUnless(importlib.util.find_spec("rich"), "Rich dependency not installed")
+    def test_rich_renderer_uses_explicit_eta_and_missing_fallback(self):
+        stream = io.StringIO()
+        renderer = create_progress_renderer("rich", stream)
+        renderer(ProgressEvent(
+            "asr", "with estimate", progress_kind="estimated",
+            current=1, total=10, unit="segments", eta_seconds=90,
+        ))
+        renderer(ProgressEvent(
+            "other", "without estimate", progress_kind="estimated",
+            current=1_000, total=10_000, unit="milliseconds",
+        ))
+        renderer.close()
+        output = stream.getvalue()
+        self.assertIn("01:30", output)
+        self.assertIn("other", output)
+        self.assertIn("-", output)
 
 
 if __name__ == "__main__":

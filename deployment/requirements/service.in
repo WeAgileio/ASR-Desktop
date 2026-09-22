@@ -1,0 +1,10 @@
+# Control plane only: do not add ASR/model dependencies here.
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
+rq>=2.2,<3
+redis>=5,<7
+jinja2>=3.1,<4
+python-multipart>=0.0.20,<1
+itsdangerous>=2.2,<3
+httpx>=0.28,<1
+rq-dashboard>=0.8,<1

@@ -1,0 +1,55 @@
+name: asr-service
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ASR_WEB_PORT:-8090}:8090"
+    environment:
+      ASR_DATABASE: /data/asr.sqlite3
+      ASR_REDIS_URL: redis://redis:6379/0
+      ASR_ADMIN_PASSWORD: ${ASR_ADMIN_PASSWORD:?set a random admin password}
+      ASR_WORKER_TOKEN: ${ASR_WORKER_TOKEN:?set a random worker token}
+      ASR_SIGNING_KEY: ${ASR_SIGNING_KEY:?set a random signing key}
+    volumes:
+      - database:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ASR_REDIS_PORT:-16379}:6379"
+    volumes:
+      - queue:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+  dashboard:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    command: ["python", "-m", "asr_service.dashboard"]
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ASR_DASHBOARD_PORT:-9181}:9181"
+    environment:
+      ASR_REDIS_URL: redis://redis:6379/0
+      ASR_DASHBOARD_PASSWORD: ${ASR_DASHBOARD_PASSWORD:?set a random dashboard password}
+    depends_on:
+      redis:
+        condition: service_healthy
+volumes:
+  database:
+  queue:

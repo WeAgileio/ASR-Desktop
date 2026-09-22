@@ -1,3 +1,4 @@
+import math
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -14,7 +15,7 @@ from .media import (detect_silence, extract_audio, extract_audio_chunk, probe_me
                     probe_wav_duration, validate_source)
 from .longform import merge_chunk_transcripts, plan_chunks
 from .longform_cache import LongFormCheckpointStore, LongFormIdentity, LongFormManifest
-from .performance import (LongFormPerformanceKey, LongFormPerformanceProfile,
+from .performance import (EtaEstimator, LongFormPerformanceKey, LongFormPerformanceProfile,
                           PerformanceKey, PerformanceProfile, PerformanceSpan,
                           StageRecorder, duration_band, resource_snapshot, runtime_identity)
 from .progress import ProgressCallback, ProgressEvent
@@ -198,9 +199,10 @@ class LocalTranscriptionService:
                     decision.resolved,
                     runtime_identity(),
                 )
-                estimated_seconds = profile.estimate_seconds(
-                    estimate_key, duration_ms / 1000
+                estimator = EtaEstimator(
+                    duration_ms / 1000, profile.estimate_rtf(estimate_key)
                 )
+                estimated_seconds = estimator.initial_eta_seconds
                 if estimated_seconds:
                     events.start(
                         phase,
@@ -219,11 +221,12 @@ class LocalTranscriptionService:
                     if duration_ms > config.long_form.threshold_ms:
                         transcript = self._transcribe_long_form(
                             config, audio_path, duration_ms, key, fingerprint, decision,
-                            adapter, events, recorder, paths.directory,
+                            adapter, events, recorder, paths.directory, profile, estimator,
                         )
                     else:
                         transcript = self._transcribe(
-                            config, audio_path, duration_ms, key, decision, adapter, events, recorder
+                            config, audio_path, duration_ms, key, decision, adapter, events,
+                            recorder, profile, estimator,
                         )
                 processing_seconds = time.monotonic() - asr_started
                 cache.save(key, transcript)
@@ -287,6 +290,8 @@ class LocalTranscriptionService:
         adapter,
         events: _PhaseEmitter,
         recorder: Optional[StageRecorder] = None,
+        profile: Optional[PerformanceProfile] = None,
+        estimator: Optional[EtaEstimator] = None,
     ) -> Transcript:
         totals_by_epoch: Dict[int, float] = {}
 
@@ -305,6 +310,8 @@ class LocalTranscriptionService:
                 totals_by_epoch[epoch] = value.total
             else:
                 return
+            completed_audio = duration_ms / 1000 * (value.current / value.total)
+            eta = estimator.remaining_seconds(completed_audio) if estimator else None
             events.update(
                 "transcription",
                 f"Transcribing on {getattr(adapter_progress, 'active_device', decision.resolved)}"
@@ -313,6 +320,7 @@ class LocalTranscriptionService:
                 current=value.current,
                 total=value.total,
                 unit=value.unit,
+                eta=eta,
             )
 
         adapter_progress.active_adapter = adapter
@@ -336,6 +344,13 @@ class LocalTranscriptionService:
                 raise
             events.start("transcription", "MPS failed; restarting transcription estimate on CPU")
             cpu_adapter = self.adapter_factory(config.model)
+            if profile is not None:
+                cpu_key = PerformanceKey(
+                    str(getattr(cpu_adapter, "model_id", config.model)),
+                    str(getattr(cpu_adapter, "model_revision", "master")),
+                    "cpu", runtime_identity(),
+                )
+                estimator = EtaEstimator(duration_ms / 1000, profile.estimate_rtf(cpu_key))
             adapter_progress.active_adapter = cpu_adapter
             adapter_progress.active_device = "cpu"
             cpu_request = replace(
@@ -345,7 +360,7 @@ class LocalTranscriptionService:
 
     def _transcribe_long_form(
         self, config, audio_path, duration_ms, key, fingerprint, decision, adapter,
-        events, recorder, job_directory,
+        events, recorder, job_directory, profile=None, initial_estimator=None,
     ):
         with recorder.measure("silence-planning"):
             silences = detect_silence(
@@ -363,6 +378,18 @@ class LocalTranscriptionService:
             )
 
         def run_attempt(active_adapter, device, epoch):
+            if epoch == 0 and initial_estimator is not None:
+                estimator = initial_estimator
+            else:
+                estimate_key = PerformanceKey(
+                    str(getattr(active_adapter, "model_id", config.model)),
+                    str(getattr(active_adapter, "model_revision", "master")),
+                    device, runtime_identity(),
+                )
+                estimator = EtaEstimator(
+                    duration_ms / 1000,
+                    profile.estimate_rtf(estimate_key) if profile is not None else None,
+                )
             identity = identity_for(active_adapter, device)
             manifest = store.load_manifest(identity, plan)
             if manifest is None:
@@ -374,11 +401,20 @@ class LocalTranscriptionService:
             transcripts = {index: item.transcript for index, item in checkpoints.items()}
             committed = sum(chunk.duration_ms - chunk.overlap_ms for chunk in plan.chunks
                             if chunk.index in transcripts)
+            processing_seconds = sum(
+                item.metadata.processing_seconds for item in transcripts.values()
+                if isinstance(item.metadata.processing_seconds, (int, float))
+                and math.isfinite(item.metadata.processing_seconds)
+                and item.metadata.processing_seconds > 0
+            )
+            if committed and processing_seconds:
+                estimator.recalibrate(committed / 1000, processing_seconds)
             if checkpoints:
                 events.update("transcription",
                               f"Resuming {len(checkpoints)}/{len(plan.chunks)} chunks on {device}",
                               kind="estimated", current=min(committed, duration_ms * .95),
-                              total=duration_ms, unit="milliseconds")
+                              total=duration_ms, unit="milliseconds",
+                              eta=estimator.remaining_seconds(committed / 1000, smooth=False))
             pending = [chunk for chunk in plan.chunks if chunk.index not in transcripts]
             if pending:
                 with active_adapter.open_session(device, recorder.record) as session:
@@ -398,6 +434,7 @@ class LocalTranscriptionService:
                                     f"{chunk.start_ms/1000:.0f}-{chunk.end_ms/1000:.0f}s on {device}",
                                     kind="estimated", current=min(current, duration_ms * .95),
                                     total=duration_ms, unit="milliseconds",
+                                    eta=estimator.remaining_seconds(current / 1000),
                                 )
                             request = AdapterRequest(
                                 chunk_path, chunk.duration_ms, config.language, config.hotwords,
@@ -408,10 +445,17 @@ class LocalTranscriptionService:
                             store.save_checkpoint(identity, chunk, value)
                             transcripts[chunk.index] = value
                             committed += chunk.duration_ms - chunk.overlap_ms
+                            chunk_processing = value.metadata.processing_seconds
+                            if (isinstance(chunk_processing, (int, float))
+                                    and math.isfinite(chunk_processing)
+                                    and chunk_processing > 0):
+                                processing_seconds += chunk_processing
+                                estimator.recalibrate(committed / 1000, processing_seconds)
                             events.update(
                                 "transcription", f"Committed chunk {chunk.index + 1}/{len(plan.chunks)}",
                                 kind="estimated", current=min(committed, duration_ms * .95),
                                 total=duration_ms, unit="milliseconds",
+                                eta=estimator.remaining_seconds(committed / 1000, smooth=False),
                             )
                         finally:
                             try:
