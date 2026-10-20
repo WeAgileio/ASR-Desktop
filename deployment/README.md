@@ -1,5 +1,7 @@
 # Google Drive 非同步逐字稿服務
 
+希望減少終端機操作？先看 [Mac 可視化管理快速指南](MAC_QUICKSTART.md)，可用瀏覽器安裝、授權、啟停與設定原生服務。
+
 GitHub 建置與鏡像部署見 [GHCR 指南](GHCR.md)；發布用 Compose 為 `compose.ghcr.yaml`，本機建置使用 `compose.yaml`。
 
 首次安裝請先閱讀 [Mac mini 完整部署指南](MAC_MINI_GUIDE.md)，依序完成 OAuth 設定、Docker 啟動、兩檔驗收與 launchd 常駐；本頁保留進階設定與驗證工具說明。

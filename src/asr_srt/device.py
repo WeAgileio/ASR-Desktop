@@ -32,16 +32,15 @@ def resolve_device(
         return DeviceDecision(requested, "mps", False, "MPS explicitly selected")
     if requested != "auto":
         raise ValidationError("Device must be one of: auto, mps, cpu")
-    if availability():
-        return DeviceDecision(requested, "mps", True, "MPS is available")
-    return DeviceDecision(requested, "cpu", False, "MPS unavailable; using CPU")
+    return DeviceDecision(requested, "cpu", False, "insufficient_evidence")
 
 
 def looks_like_mps_error(exc: BaseException) -> bool:
     message = str(exc).lower()
     markers = (
-        "mps", "metal", "not implemented for", "placeholder storage", "mps backend",
-        "unsupported device type",
+        "not implemented for the mps", "not implemented for mps", "placeholder storage",
+        "mps backend", "mps device", "mps op unsupported", "metal performance shaders",
+        "unsupported device type: mps",
     )
     return any(marker in message for marker in markers)
 

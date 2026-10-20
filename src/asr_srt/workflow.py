@@ -124,10 +124,14 @@ class LocalTranscriptionService:
         adapter_factory: Callable = create_adapter,
         progress: Optional[ProgressCallback] = None,
         device_resolver: Callable = resolve_device,
+        cancel_check: Optional[Callable] = None,
+        media_cache_dir: Optional[Path] = None,
     ):
         self.adapter_factory = adapter_factory
         self.progress = progress or (lambda event: None)
         self.device_resolver = device_resolver
+        self.cancel_check = cancel_check or (lambda: None)
+        self.media_cache_dir = Path(media_cache_dir) if media_cache_dir else None
 
     def run(self, config: JobConfig) -> JobResult:
         recorder = StageRecorder()
@@ -136,6 +140,7 @@ class LocalTranscriptionService:
         try:
             events.start(phase, "Validating input and dependencies")
             source = validate_source(config.input_path)
+            self.cancel_check()
             media = probe_media(source)
             fingerprint = content_fingerprint(source)
             adapter = self.adapter_factory(config.model)
@@ -180,7 +185,7 @@ class LocalTranscriptionService:
 
                 audio_path = extract_audio(
                     source,
-                    paths.audio,
+                    self.media_cache_dir / key / "audio.wav" if self.media_cache_dir else paths.audio,
                     duration_ms=media.duration_ms,
                     progress=media_progress,
                 )
@@ -229,6 +234,7 @@ class LocalTranscriptionService:
                             recorder, profile, estimator,
                         )
                 processing_seconds = time.monotonic() - asr_started
+                self.cancel_check()
                 cache.save(key, transcript)
                 record_key = PerformanceKey(
                     transcript.metadata.model_id,
@@ -270,6 +276,7 @@ class LocalTranscriptionService:
             events.complete(phase, "Subtitle cues generated")
 
             phase = "output-writing"
+            self.cancel_check()
             events.start(phase, f"Writing {config.resolved_output_path}")
             output = write_srt(config.resolved_output_path, cues, overwrite=config.overwrite)
             events.complete(phase, f"Generated {output}")
@@ -419,7 +426,9 @@ class LocalTranscriptionService:
             if pending:
                 with active_adapter.open_session(device, recorder.record) as session:
                     for chunk in pending:
-                        chunk_path = store.root / "audio" / f"{chunk.index:04d}.wav"
+                        self.cancel_check()
+                        chunk_path = ((self.media_cache_dir / key / "chunks") if self.media_cache_dir
+                                      else store.root / "audio") / f"{chunk.index:04d}.wav"
                         try:
                             extract_audio_chunk(audio_path, chunk_path, chunk.start_ms, chunk.end_ms)
                             base = committed
@@ -442,6 +451,7 @@ class LocalTranscriptionService:
                             )
                             with recorder.measure("chunk-asr"):
                                 value = session.transcribe(request)
+                            self.cancel_check()
                             store.save_checkpoint(identity, chunk, value)
                             transcripts[chunk.index] = value
                             committed += chunk.duration_ms - chunk.overlap_ms

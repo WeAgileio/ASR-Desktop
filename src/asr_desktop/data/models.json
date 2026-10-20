@@ -1,0 +1,229 @@
+{
+  "components": {
+    "nano": {
+      "assets": [
+        {
+          "path": "Qwen3-0.6B/config.json",
+          "sha256": "660db3b73d788119c04535e48cf9be5f55bc3100841a718637ae695b442f27dd",
+          "size": 726,
+          "url": "https://modelscope.cn/api/v1/models/FunAudioLLM/Fun-ASR-Nano-2512/repo?Revision=05201c46f1c38592b1567f857c0d56eab3d0d8ef&FilePath=Qwen3-0.6B%2Fconfig.json"
+        },
+        {
+          "path": "Qwen3-0.6B/generation_config.json",
+          "sha256": "2325da0f15bb848e018c5ae071b7943332e9f871d6b60e2ed22ca97d4cb993d2",
+          "size": 239,
+          "url": "https://modelscope.cn/api/v1/models/FunAudioLLM/Fun-ASR-Nano-2512/repo?Revision=05201c46f1c38592b1567f857c0d56eab3d0d8ef&FilePath=Qwen3-0.6B%2Fgeneration_config.json"
+        },
+        {
+          "path": "Qwen3-0.6B/merges.txt",
+          "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5",
+          "size": 1671853,
+          "url": "https://modelscope.cn/api/v1/models/FunAudioLLM/Fun-ASR-Nano-2512/repo?Revision=05201c46f1c38592b1567f857c0d56eab3d0d8ef&FilePath=Qwen3-0.6B%2Fmerges.txt"
+        },
+        {
+          "path": "Qwen3-0.6B/tokenizer.json",
+          "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+          "size": 11422654,
+          "url": "https://modelscope.cn/api/v1/models/FunAudioLLM/Fun-ASR-Nano-2512/repo?Revision=05201c46f1c38592b1567f857c0d56eab3d0d8ef&FilePath=Qwen3-0.6B%2Ftokenizer.json"
+        },
+        {
+          "path": "Qwen3-0.6B/tokenizer_config.json",
+          "sha256": "d5d09f07b48c3086c508b30d1c9114bd1189145b74e982a265350c923acd8101",
+          "size": 9732,
+          "url": "https://modelscope.cn/api/v1/models/FunAudioLLM/Fun-ASR-Nano-2512/repo?Revision=05201c46f1c38592b1567f857c0d56eab3d0d8ef&FilePath=Qwen3-0.6B%2Ftokenizer_config.json"
+        },
+        {
+          "path": "Qwen3-0.6B/vocab.json",
+          "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910",
+          "size": 2776833,
+          "url": "https://modelscope.cn/api/v1/models/FunAudioLLM/Fun-ASR-Nano-2512/repo?Revision=05201c46f1c38592b1567f857c0d56eab3d0d8ef&FilePath=Qwen3-0.6B%2Fvocab.json"
+        },
+        {
+          "path": "README.md",
+          "sha256": "f706904e1c1d10126f25ff4ff743e40d08655395ea6b24de727cb128a5b06ec9",
+          "size": 15679,
+          "url": "https://modelscope.cn/api/v1/models/FunAudioLLM/Fun-ASR-Nano-2512/repo?Revision=05201c46f1c38592b1567f857c0d56eab3d0d8ef&FilePath=README.md"
+        },
+        {
+          "path": "README_zh.md",
+          "sha256": "6fa8d3f79bfee9fa71fe759c02a3eb4134075bdf387abb536d76d315f76540c2",
+          "size": 12241,
+          "url": "https://modelscope.cn/api/v1/models/FunAudioLLM/Fun-ASR-Nano-2512/repo?Revision=05201c46f1c38592b1567f857c0d56eab3d0d8ef&FilePath=README_zh.md"
+        },
+        {
+          "path": "config.yaml",
+          "sha256": "daed38ea6484f5650fb32cbd9069b9aa13880acaf2bcb1f0bf4be2712837917c",
+          "size": 3140,
+          "url": "https://modelscope.cn/api/v1/models/FunAudioLLM/Fun-ASR-Nano-2512/repo?Revision=05201c46f1c38592b1567f857c0d56eab3d0d8ef&FilePath=config.yaml"
+        },
+        {
+          "path": "configuration.json",
+          "sha256": "b64a3a55d35bcbe2cf4d31f2d3ef25a423d3ba2ebff203298c27fa055f3c7612",
+          "size": 398,
+          "url": "https://modelscope.cn/api/v1/models/FunAudioLLM/Fun-ASR-Nano-2512/repo?Revision=05201c46f1c38592b1567f857c0d56eab3d0d8ef&FilePath=configuration.json"
+        },
+        {
+          "path": "model.pt",
+          "sha256": "81fec8616083c69377f3ceef36aba3655660ee0ca69a5d4a1e9810cd340ca499",
+          "size": 2127426538,
+          "url": "https://modelscope.cn/api/v1/models/FunAudioLLM/Fun-ASR-Nano-2512/repo?Revision=05201c46f1c38592b1567f857c0d56eab3d0d8ef&FilePath=model.pt"
+        },
+        {
+          "path": "multilingual.tiktoken",
+          "sha256": "747979631e813193436aabcff7c1c235d37de8097b71c563ec8b63b7a515c718",
+          "size": 907395,
+          "url": "https://modelscope.cn/api/v1/models/FunAudioLLM/Fun-ASR-Nano-2512/repo?Revision=05201c46f1c38592b1567f857c0d56eab3d0d8ef&FilePath=multilingual.tiktoken"
+        }
+      ],
+      "license_source": "https://modelscope.cn/models/FunAudioLLM/Fun-ASR-Nano-2512/file/view/05201c46f1c38592b1567f857c0d56eab3d0d8ef/README.md",
+      "repository": "FunAudioLLM/Fun-ASR-Nano-2512",
+      "revision": "05201c46f1c38592b1567f857c0d56eab3d0d8ef"
+    },
+    "paraformer": {
+      "assets": [
+        {
+          "path": "README.md",
+          "sha256": "c92fa06ad63cc9962b9515eb23872f8ed8052fecb4f2df90ec7d0cdbaf916b9f",
+          "size": 13677,
+          "url": "https://modelscope.cn/api/v1/models/iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch/repo?Revision=0141367fdc9b6ba58b0442ef34bceb56a6c1789c&FilePath=README.md"
+        },
+        {
+          "path": "am.mvn",
+          "sha256": "29b3c740a2c0cfc6b308126d31d7f265fa2be74f3bb095cd2f143ea970896ae5",
+          "size": 11203,
+          "url": "https://modelscope.cn/api/v1/models/iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch/repo?Revision=0141367fdc9b6ba58b0442ef34bceb56a6c1789c&FilePath=am.mvn"
+        },
+        {
+          "path": "config.yaml",
+          "sha256": "6602efa95e4c7248e1d1030f7ff454a3c9af0f57c335ed87f35260cd7faec35d",
+          "size": 3477,
+          "url": "https://modelscope.cn/api/v1/models/iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch/repo?Revision=0141367fdc9b6ba58b0442ef34bceb56a6c1789c&FilePath=config.yaml"
+        },
+        {
+          "path": "configuration.json",
+          "sha256": "1acac324430b5a4680ef5ee2947575443ab2039a92c8a0551665f6bc9a606b41",
+          "size": 478,
+          "url": "https://modelscope.cn/api/v1/models/iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch/repo?Revision=0141367fdc9b6ba58b0442ef34bceb56a6c1789c&FilePath=configuration.json"
+        },
+        {
+          "path": "model.pt",
+          "sha256": "3d491689244ec5dfbf9170ef3827c358aa10f1f20e42a7c59e15e688647946d1",
+          "size": 989763045,
+          "url": "https://modelscope.cn/api/v1/models/iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch/repo?Revision=0141367fdc9b6ba58b0442ef34bceb56a6c1789c&FilePath=model.pt"
+        },
+        {
+          "path": "seg_dict",
+          "sha256": "59a2ef803a3f1648ad03a2e1480db1c1ee0c0d7dc4ef4dbd16cea33944329022",
+          "size": 8287834,
+          "url": "https://modelscope.cn/api/v1/models/iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch/repo?Revision=0141367fdc9b6ba58b0442ef34bceb56a6c1789c&FilePath=seg_dict"
+        },
+        {
+          "path": "tokens.json",
+          "sha256": "2b20c2b12572d682afff84ce1c8d560f67b8b32a4c1f21567411d141ed352127",
+          "size": 93676,
+          "url": "https://modelscope.cn/api/v1/models/iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch/repo?Revision=0141367fdc9b6ba58b0442ef34bceb56a6c1789c&FilePath=tokens.json"
+        }
+      ],
+      "license_source": "https://modelscope.cn/models/iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch/file/view/0141367fdc9b6ba58b0442ef34bceb56a6c1789c/README.md",
+      "repository": "iic/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch",
+      "revision": "0141367fdc9b6ba58b0442ef34bceb56a6c1789c"
+    },
+    "punctuation": {
+      "assets": [
+        {
+          "path": "README.md",
+          "sha256": "ec69d294e9975c70ddd04c883559e656e7032eed57cf578e536db95efe9ecf02",
+          "size": 11564,
+          "url": "https://modelscope.cn/api/v1/models/iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch/repo?Revision=d488ddd5985989501d57bce7f7a4d4dcfca779d0&FilePath=README.md"
+        },
+        {
+          "path": "config.yaml",
+          "sha256": "a56ec10925b06fa976ad51af373396be2b13e1eb8dc62a5426b5adebaba7071d",
+          "size": 810,
+          "url": "https://modelscope.cn/api/v1/models/iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch/repo?Revision=d488ddd5985989501d57bce7f7a4d4dcfca779d0&FilePath=config.yaml"
+        },
+        {
+          "path": "configuration.json",
+          "sha256": "ebca5ff883e03585b2eec84ce80573f851658bdc61f2887db7d076afe6facd91",
+          "size": 373,
+          "url": "https://modelscope.cn/api/v1/models/iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch/repo?Revision=d488ddd5985989501d57bce7f7a4d4dcfca779d0&FilePath=configuration.json"
+        },
+        {
+          "path": "model.pt",
+          "sha256": "a5818bb9d933805a916eebe41eb41648f7f9caad30b4bd59d56f3ca135421916",
+          "size": 291979892,
+          "url": "https://modelscope.cn/api/v1/models/iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch/repo?Revision=d488ddd5985989501d57bce7f7a4d4dcfca779d0&FilePath=model.pt"
+        },
+        {
+          "path": "tokens.json",
+          "sha256": "c960ab87bccea4aa15cf49a59f71973c2c330b46668048cd8da253749ec71ee3",
+          "size": 4207480,
+          "url": "https://modelscope.cn/api/v1/models/iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch/repo?Revision=d488ddd5985989501d57bce7f7a4d4dcfca779d0&FilePath=tokens.json"
+        }
+      ],
+      "license_source": "https://modelscope.cn/models/iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch/file/view/d488ddd5985989501d57bce7f7a4d4dcfca779d0/README.md",
+      "repository": "iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch",
+      "revision": "d488ddd5985989501d57bce7f7a4d4dcfca779d0"
+    },
+    "vad": {
+      "assets": [
+        {
+          "path": "README.md",
+          "sha256": "42377011603a186fc2bae41a5cc5e548ebf98d8ec307bbae9dd405f82567f543",
+          "size": 11567,
+          "url": "https://modelscope.cn/api/v1/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch/repo?Revision=f9a8b8274674755d925277e27063869038d41515&FilePath=README.md"
+        },
+        {
+          "path": "am.mvn",
+          "sha256": "6820fef9687708c4fc3fab2530179c8fcea6262daa25514380056cd8f6eb1754",
+          "size": 8040,
+          "url": "https://modelscope.cn/api/v1/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch/repo?Revision=f9a8b8274674755d925277e27063869038d41515&FilePath=am.mvn"
+        },
+        {
+          "path": "config.yaml",
+          "sha256": "486861ca26ddb79081663b6179cb204c6bfae71c52f04aafc48a9e9d8dde1e93",
+          "size": 1215,
+          "url": "https://modelscope.cn/api/v1/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch/repo?Revision=f9a8b8274674755d925277e27063869038d41515&FilePath=config.yaml"
+        },
+        {
+          "path": "configuration.json",
+          "sha256": "7bce8867e37d55c3dd8f672695ced18077a2be199ea529a5d432d5350fc0acba",
+          "size": 365,
+          "url": "https://modelscope.cn/api/v1/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch/repo?Revision=f9a8b8274674755d925277e27063869038d41515&FilePath=configuration.json"
+        },
+        {
+          "path": "model.pt",
+          "sha256": "b3be75be477f0780277f3bae0fe489f48718f585f3a6e45d7dd1fbb1a4255fc5",
+          "size": 1721366,
+          "url": "https://modelscope.cn/api/v1/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch/repo?Revision=f9a8b8274674755d925277e27063869038d41515&FilePath=model.pt"
+        }
+      ],
+      "license_source": "https://modelscope.cn/models/iic/speech_fsmn_vad_zh-cn-16k-common-pytorch/file/view/f9a8b8274674755d925277e27063869038d41515/README.md",
+      "repository": "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
+      "revision": "f9a8b8274674755d925277e27063869038d41515"
+    }
+  },
+  "default_model": "fun-asr-nano",
+  "models": [
+    {
+      "components": [
+        "nano",
+        "vad"
+      ],
+      "download_bytes": 2145989981,
+      "id": "fun-asr-nano",
+      "snapshot_id": "82dc373b891ada5cc7ded019aa02fd281ff53bc79833555a47ea40452eb3b44b"
+    },
+    {
+      "components": [
+        "paraformer",
+        "vad",
+        "punctuation"
+      ],
+      "download_bytes": 1296116062,
+      "id": "paraformer",
+      "snapshot_id": "0ed2d8d63b7af190a6f9d699e84c9de721723c2b2bc8076a3942b100b1eba37a"
+    }
+  ],
+  "schema_version": 1
+}

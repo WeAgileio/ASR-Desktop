@@ -1,5 +1,7 @@
 # Mac mini 部署指南
 
+希望減少終端機操作？先看 [Mac 可視化管理快速指南](MAC_QUICKSTART.md)，可用瀏覽器安裝、授權、啟停與設定原生服務。
+
 適用：Apple Silicon Mac mini、16GB 記憶體，同一台機器執行 Docker 前台與 macOS 原生 FunASR worker，一次處理一個任務。本指南採用 **Google 使用者 OAuth**，可將結果寫入該使用者有寫入權限的 My Drive 資料夾。
 
 目前已有 M1 Max／32GB 的兩段 20 秒音訊端到端驗證；**M4／16GB 長音訊尚未完成驗收**。先完成第 6 節的小批次測試，再開始正式批次。

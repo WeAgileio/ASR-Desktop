@@ -174,8 +174,8 @@ class AdapterDeviceTests(unittest.TestCase):
         self.assertEqual([unit.text for unit in result.units], ["你", "好"])
 
     def test_device_resolution(self):
-        self.assertEqual(resolve_device("auto", lambda: True).resolved, "mps")
-        self.assertTrue(resolve_device("auto", lambda: True).fallback_allowed)
+        self.assertEqual(resolve_device("auto", lambda: True).resolved, "cpu")
+        self.assertFalse(resolve_device("auto", lambda: True).fallback_allowed)
         self.assertEqual(resolve_device("auto", lambda: False).resolved, "cpu")
         self.assertEqual(resolve_device("cpu", lambda: True).resolved, "cpu")
         with self.assertRaises(MPSCompatibilityError):

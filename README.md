@@ -6,7 +6,13 @@ Apple Silicon Mac 上的本機影片轉 SRT 生成器。支援使用者選擇 Fu
 
 Docker 鏡像建置與拉取部署請見 [GitHub Actions／GHCR 指南](deployment/GHCR.md)。
 
+Mac 原生服務也可透過 [本機可視化管理頁](deployment/MAC_QUICKSTART.md) 安裝、授權及管理。
+
+獨立的 **ASR Desktop 開發版**提供 SwiftUI 視窗與 `asr-desktop` CLI，共用本機模型、批次佇列與 TXT／SRT／JSON 輸出；App 內含 Python 與媒體工具，模型安裝後再下載。見[桌面操作指南](desktop/USAGE.md)、[開發建置](desktop/README.md)與[驗證紀錄](desktop/VALIDATION.md)。正式簽署、完整視窗互動、macOS 14 與長語料驗收尚未完成，不能視為正式發行。
+
 ## Requirements
+
+以下開發依賴適用於自行安裝既有 `asr-srt` CLI；桌面開發包已內建執行環境。
 
 - Apple Silicon Mac
 - Python 3.9+（建議使用 Python 3.11）
@@ -34,7 +40,7 @@ asr-srt --diagnose
 
 ## Usage
 
-使用預設 Fun-ASR-Nano、自動選擇 MPS/CPU，將 SRT 寫在影片旁：
+使用預設 Fun-ASR-Nano 與保守自動裝置政策，將 SRT 寫在影片旁：
 
 ```bash
 asr-srt "/path/to/interview.mp4"
@@ -111,7 +117,7 @@ asr-srt video.mp4 --progress off
 - `manifest.json` 或個別 checkpoint 損毀時，只重跑不相容的 chunk；不完整 checkpoints 不會冒充完整 transcript cache。
 - Resume progress 以已提交且不重複計算 overlap 的音訊時長，加上當前 chunk estimate 計算，仍標示 `estimated`，merge 與最終 cache 成功前不會到達 100%。
 - 每次成功提交 chunk 後，會用 checkpoint 內有效的實際處理秒數重新校準剩餘 ETA；續跑時已完成 chunk 不再列入剩餘時間，但可作為相容的校準證據。證據缺失或損毀時退回歷史 RTF，兩者都沒有時只顯示 elapsed。
-- `auto` 只有在同模型 CPU/MPS 都累積足量且符合記憶體／swap guardrails 的長內容 profile 時才依 RTF 選 device；明確指定 `--device` 永遠優先。
+- `auto` 預設 CPU；舊版長內容 RTF profile 不具備完整品質／環境／資源證據，不再單獨授權自動 GPU。明確指定 `--device` 永遠優先，完整門檻見[裝置政策](desktop/DEVICE-POLICY.md)。
 
 長內容效能資料位於 `<cache-dir>/long-form-performance.json`。若要釋放未完成任務空間，可刪除對應 job 的 `longform/audio/` 暫存內容；刪除 `longform/chunks/` 會失去 resume 能力，但不影響已完成的 `transcript.json`。排查速度時應分別比較 model-load、silence-planning、chunk-asr、normalization 與 chunk-merge spans，並同時觀察 peak RSS、memory pressure 與 swap。
 
@@ -122,7 +128,7 @@ asr-srt video.mp4 --progress off
 | `fun-asr-nano` | 中英混合、專業詞彙、口音與上下文 | 模型較大；Mac MPS 相容性需依實機驗證 |
 | `paraformer` | 中文長影片、較低記憶體、成熟時間戳 | 英文術語可能更依賴熱詞 |
 
-模型與 device 是兩個獨立選擇。`--device auto` 優先使用 MPS；若出現已知的 MPS 相容性錯誤，會明確顯示訊息後以 CPU 重試一次。`--device mps` 是強制模式，失敗時不會靜默切換 CPU。
+模型與 device 是兩個獨立選擇。`--device auto` 在證據不足時選 CPU；桌面版收集合格比較證據的政策已建立，但品質基線尚未完成，目前不會自動升級 GPU。`--device mps` 是強制模式，失敗時不會靜默切換 CPU。
 
 ## Output and cache
 
@@ -153,7 +159,7 @@ python -m pip install -e .
 
 ### MPS failure
 
-先讓 `--device auto` 進行 CPU 退路。若要排除 MPS 差異：
+`--device auto` 目前以 CPU 保守執行。若要明確排除 MPS 差異：
 
 ```bash
 asr-srt video.mp4 --device cpu
@@ -174,6 +180,15 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 真實 Apple Silicon 模型評測請參考 `evaluation/manifest.example.json` 與 `evaluation/RESULTS.md`，不要將私人影片或完整 transcript 提交到專案。
 
 ## Release Notes
+
+### 未發行 — ASR Desktop 開發版
+
+- 新增 Apple Silicon 桌面視窗與 CLI，共用持久化批次、取消、重試、模型管理與設定。
+- 安裝包內含辨識 runtime 與媒體工具；模型安裝後下載，使用完整性校驗與安全續傳。
+- 批次輸出繁體 TXT、SRT 及可選原始 JSON，保護來源與既有檔案，匯出失敗可重用已完成辨識。
+- `auto` 改為證據不足時使用 CPU；保留明確 GPU／CPU 與使用者啟動的校準。
+
+驗證限制：已完成兩模型真實短檔批次與 CLI 控制測試；完整 GUI 操作、品質基線、長內容、乾淨 Mac／最低系統與正式簽署仍待驗收。此條目不代表已發布版本。
 
 ### v0.1.0 — 2026-09-22
 
