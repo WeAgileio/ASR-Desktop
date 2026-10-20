@@ -1,185 +1,243 @@
-# ASR SRT
+# ASR-Desktop
 
-Apple Silicon Mac 上的本機影片轉 SRT 生成器。支援使用者選擇 Fun-ASR-Nano-2512 或 Paraformer，並將中文為主、英文為輔的辨識結果轉為台灣繁體 SRT。獨立 CLI 的影片、音訊、模型與 transcript 都留在本機。
+適用於 Apple Silicon Mac 的本機語音轉文字工具。將錄好的音訊或影片匯入桌面 App，即可批次產生逐字稿與 SRT 字幕；也能透過 CLI 提交、追蹤及管理同一批任務。
 
-另提供 [Google Drive 非同步服務部署指南](deployment/MAC_MINI_GUIDE.md)：Docker Web/API、SQLite、Redis/RQ，搭配 Mac 原生單工 worker；可透過 OAuth 將 TXT、SRT 回傳至 My Drive，或使用服務帳號寫入共用雲端硬碟。已用兩段短音訊完成真實 Drive 回傳驗收；M4／16GB 長音訊驗收仍待完成，見指南的驗證限制。
+ASR-Desktop 使用 SwiftUI 原生介面與 FunASR 推論核心，支援 Fun-ASR-Nano、Paraformer 兩種模型。模型下載完成後，轉錄使用本機資產執行，音訊不需上傳至雲端辨識服務。完整 App 內含 Python runtime、FFmpeg 與 FFprobe，日常使用不需另裝 Python、Homebrew、Redis 或 Docker。
 
-Docker 鏡像建置與拉取部署請見 [GitHub Actions／GHCR 指南](deployment/GHCR.md)。
+> **目前為開發版。** 目標平台是 Apple Silicon／macOS 14 以上，現有實測環境為 Apple M1 Max／macOS 26.6.2。完整 GUI、長錄音品質與資源、乾淨 Mac／最低系統版本、正式簽署及公證驗收仍待完成。既有證據與限制見 [VALIDATION.md](desktop/VALIDATION.md)。
 
-Mac 原生服務也可透過 [本機可視化管理頁](deployment/MAC_QUICKSTART.md) 安裝、授權及管理。
+[操作說明](desktop/USAGE.md) · [模型管理](desktop/MODELS.md) · [CPU／GPU 政策](desktop/DEVICE-POLICY.md) · [驗收紀錄](desktop/VALIDATION.md) · [GitHub 儲存庫](https://github.com/WeAgileio/ASR-Desktop)
 
-獨立的 **ASR Desktop 開發版**提供 SwiftUI 視窗與 `asr-desktop` CLI，共用本機模型、批次佇列與 TXT／SRT／JSON 輸出；App 內含 Python 與媒體工具，模型安裝後再下載。見[桌面操作指南](desktop/USAGE.md)、[開發建置](desktop/README.md)與[驗證紀錄](desktop/VALIDATION.md)。正式簽署、完整視窗互動、macOS 14 與長語料驗收尚未完成，不能視為正式發行。
+## 主要功能
 
-## Requirements
+- **桌面操作與 CLI 共用狀態**：使用相同的背景服務、任務紀錄、設定與模型儲存空間。
+- **批次匯入**：選取或拖入音訊、影片及資料夾，可選擇包含子資料夾；提交前預覽有效檔案與輸出位置。
+- **逐字稿與字幕**：預設輸出台灣繁體 TXT、SRT，可改為簡體或保留原文，另可匯出原始辨識結果 JSON。
+- **任務佇列**：逐檔轉錄，支援暫停、恢復、取消及重試；關閉視窗或 CLI 後，背景工作仍會繼續。
+- **模型下載與修復**：顯示下載進度與空間需求，驗證固定版本及 SHA-256，支援符合條件的中斷續傳。
+- **CPU／GPU 選擇**：提供自動、CPU 與 Apple GPU（MPS）模式，以及使用指定樣本的 CPU／GPU 校準。
+- **輸出保護**：預設不覆寫既有檔案，輸出名稱帶有穩定來源後綴，避免不同來源的同名檔案互相覆蓋。
 
-以下開發依賴適用於自行安裝既有 `asr-srt` CLI；桌面開發包已內建執行環境。
+## 使用方式
 
-- Apple Silicon Mac
-- Python 3.9+（建議使用 Python 3.11）
-- [Homebrew](https://brew.sh/)
-- FFmpeg
-- 首次安裝模型需要網路，之後可離線執行
+以下步驟適用於已包含完整 runtime 的 App；從原始碼建立 App 請見下方「開發與建置」。
 
-Fun-ASR-Nano 模型權重約 2.15 GB，實際快取還會包含 VAD 與相關檔案。Paraformer 較小且通常在 CPU 處理長影片更快。
+1. 開啟 **ASR Desktop.app**，到「模型」頁選擇模型，按「下載／修復」，等到顯示「已就緒」。
+2. 到「匯入」頁加入音訊、影片或資料夾，選擇輸出資料夾、模型、裝置及文字格式。
+3. 按「預覽批次」檢查檔案，再提交有效項目。
+4. 按「恢復佇列」開始轉錄。服務每次啟動後，佇列預設為暫停。
+5. 到「任務」頁查看進度、錯誤及輸出位置，也可取消或重試個別檔案或整批任務。
 
-## Installation
+「暫停佇列」只停止下一檔，當前檔案會繼續；「停止背景服務」會先暫停領取，再等待當前工作完成。服務意外中斷後，需明確重試中斷的任務。
 
-```bash
-brew install ffmpeg python@3.11
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e .
+### 輸入與輸出
+
+輸入為本機音訊或含音軌的影片。內建媒體工具包含 AAC、MP3、FLAC、ALAC、Opus、Vorbis 與常見 PCM 等音訊解碼器，實際可處理範圍取決於容器與音軌編碼。資料夾掃描不追蹤符號連結。
+
+| 格式 | 內容 |
+| --- | --- |
+| TXT | 機器逐字稿，預設轉為台灣繁體，標示未經人工校訂 |
+| SRT | 含時間碼的字幕，可設定每行長度與最長顯示時間 |
+| JSON | 原始辨識文字及時間戳資料，不套用繁簡轉換 |
+
+預設只輸出 TXT 與 SRT；JSON 需另外勾選或透過 `--formats` 指定。即使允許覆寫，也不能覆蓋來源媒體。
+
+### 模型與裝置
+
+| 模型 | CLI 識別名稱 | 約略下載量 |
+| --- | --- | ---: |
+| Fun-ASR-Nano（預設） | `fun-asr-nano` | 2.15 GB |
+| Paraformer | `paraformer` | 1.30 GB |
+
+下載量包含各模型需要的輔助資產；準備過程另需工作空間，以 App 顯示的需求為準。模型權重不放入 App 安裝檔，首次準備模型需要網路；推論不會自動下載缺少的模型。詳細流程見 [MODELS.md](desktop/MODELS.md)。
+
+`auto` 目前因尚無合格品質基線而使用 CPU。可明確選擇 GPU／MPS，但一次成功轉錄或校準不會讓自動模式改用 GPU，也不代表 GPU 在所有錄音上都較快。判定條件見 [DEVICE-POLICY.md](desktop/DEVICE-POLICY.md)。
+
+### CLI 範例
+
+CLI 隨 App 提供。以下以 `/Applications` 為安裝位置；使用開發副本時，請改成簽署腳本輸出的 App 路徑。
+
+```sh
+ASR="/Applications/ASR Desktop.app/Contents/MacOS/asr-desktop"
+
+"$ASR" --help
+"$ASR" diagnose --json
+"$ASR" models download paraformer --json
+"$ASR" models list --json
 ```
 
-確認環境：
+模型下載為非同步作業。確認 `models list` 中該模型的 `ready` 為 `true` 後，再提交轉錄：
 
-```bash
-asr-srt --diagnose
-```
-
-## Usage
-
-使用預設 Fun-ASR-Nano 與保守自動裝置政策，將 SRT 寫在影片旁：
-
-```bash
-asr-srt "/path/to/interview.mp4"
-```
-
-選擇 Paraformer：
-
-```bash
-asr-srt video.mp4 --model paraformer
-```
-
-使用熱詞：
-
-```bash
-asr-srt video.mp4 \
-  --hotword FunASR \
-  --hotword "OpenAI,ModelScope,DaVinci Resolve"
-```
-
-強制 CPU、自訂輸出並覆寫已有 SRT：
-
-```bash
-asr-srt video.mp4 \
+```sh
+"$ASR" submit "$HOME/Movies/meeting.mp4" \
+  --output-dir "$HOME/Documents/Transcripts" \
   --model paraformer \
-  --device cpu \
-  --output subtitles/video.zh-TW.srt \
-  --overwrite
+  --device auto \
+  --formats txt,srt,json \
+  --script traditional \
+  --json
+
+"$ASR" queue resume --json
+"$ASR" jobs list --json
 ```
 
-調整切句：
+使用回應中的實際批次或任務 ID，替換下列 `batch-EXAMPLE`、`job-EXAMPLE`：
 
-```bash
-asr-srt video.mp4 \
-  --max-units 18 \
-  --max-duration 5 \
-  --min-duration 0.8 \
-  --silence-gap 0.6
+```sh
+"$ASR" jobs watch batch-EXAMPLE
+"$ASR" jobs show job-EXAMPLE --json
+"$ASR" jobs cancel job-EXAMPLE --json
+"$ASR" jobs retry job-EXAMPLE --json
 ```
 
-預設會輸出台灣繁體。如果要保留模型原文：
+`submit` 成功只表示接受提交；加上 `--wait` 才會等待整批結果。若佇列暫停、模型缺失或任務中斷，等待會回傳代碼 `3` 與 ID。Ctrl-C 只停止 CLI 觀察，取消背景工作需使用 `jobs cancel`。
 
-```bash
-asr-srt video.mp4 --no-traditional
+可在設定頁按「安裝 CLI 連結」，或執行 `"$ASR" cli install`，建立 `~/.local/bin/asr-desktop`。程式不會覆寫同名命令，也不會自動修改 shell 的 PATH。更多命令與修復方式見 [USAGE.md](desktop/USAGE.md)。
+
+## 資料儲存
+
+| 資料 | 預設位置 |
+| --- | --- |
+| 任務資料庫、設定與轉錄紀錄 | `~/Library/Application Support/ASR Desktop` |
+| 模型資產 | `~/Library/Application Support/ASR Desktop/models` |
+| 可重建的音訊快取 | `~/Library/Caches/ASR Desktop` |
+| TXT／SRT／JSON 成品 | 提交任務時指定的輸出資料夾 |
+| 開發版背景服務日誌 | `/private/tmp/asr-desktop-<uid>/development-helper.log` |
+
+GUI 與 CLI 透過同一使用者的私有 Unix socket 控制背景服務，由服務統一管理 SQLite 與單工推論佇列。模型下載與轉錄分開進行；缺少模型的任務會等待模型，不占用推論槽。
+
+## 開發與建置
+
+桌面版的 Swift 程式、文件與建置腳本位於 `desktop/`，Python 核心位於儲存庫根目錄的 `src/`。建置需取得完整儲存庫，並在根目錄執行以下命令。建置機需要：
+
+- Apple Silicon Mac。
+- Xcode（含 Swift 6 與 macOS SDK）。
+- Python 3 與 `uv`；推論封裝環境固定使用 Python **3.11.15**。
+- 首次取得依賴、FFmpeg 原始碼及模型時所需的網路與磁碟空間。
+
+以下命令均在專案根目錄執行，產物放在 `build/desktop/`。若要重建正在使用的 App，請先停止其背景服務。
+
+### 1. 建置原生 App
+
+```sh
+python3 desktop/scripts/build_app.py
 ```
 
-## Progress display
+產物為 `build/desktop/ASR Desktop.app`，包含 SwiftUI App、`asr-desktop` CLI 與 helper。三個執行檔均以 arm64／macOS 14 為建置目標，腳本會逐一檢查架構。**單獨完成此步尚不包含推論 runtime，需繼續以下步驟才能轉錄。**
 
-預設 `--progress auto` 會在互動終端使用可原地更新的 Rich 畫面；輸出被導向檔案、pipe 或 CI 時，自動改用不含 ANSI 控制碼的純文字事件。也可以明確指定：
+### 2. 封裝推論環境與媒體工具
 
-```bash
-asr-srt video.mp4 --progress rich
-asr-srt video.mp4 --progress plain
-asr-srt video.mp4 --progress off
+建立專用封裝環境，依固定版本安裝依賴：
+
+```sh
+uv venv --python 3.11.15 build/desktop/packaging-env
+UV_CACHE_DIR="$PWD/build/desktop/uv-cache" uv pip install \
+  --python build/desktop/packaging-env/bin/python \
+  -r desktop/requirements/runtime.lock -r desktop/requirements/build.lock
+
+python3 desktop/scripts/build_media.py
+build/desktop/packaging-env/bin/python desktop/scripts/build_runtime.py
+python3 desktop/scripts/verify_runtime.py
 ```
 
-- 音訊擷取百分比來自 FFmpeg 已處理的媒體時間，屬於實測值。
-- FunASR 搭配內建 VAD 時，工具會在相容 runtime 中以「已完成 VAD 語音區段時長 / 全部語音區段時長」顯示標記為 `estimated`／`~` 的 transcription 百分比。長短切片會依語音時長加權，不會把每個切片或動態 batch 視為等量工作。
-- 語音時長仍不等於實際運算時間；音訊內容、padding、batching 與機器負載都可能讓畫面百分比快於或慢於 wall-clock 進度，因此這個數字不會標示為 actual，成功完成前也不會到達 100%。
-- FunASR 的原生 callback 可能只代表會重置的內部 batch，工具不會把它冒充整部影片百分比。若安裝版本不支援安全的全域區段觀測，或觀測資料不一致，會自動退回歷史 RTF estimate；沒有足夠歷史資料時則顯示 spinner 與已用時間，字幕生成不受影響。
-- 百分比與 ETA 是兩個獨立數值：百分比可以使用毫秒、segment 或 item 工作量；ETA 永遠是明確的剩餘 wall-clock 秒數，不會把工作量單位誤當成秒。
-- 同一模型版本、device/backend 與 runtime 累積至少兩個 30 秒以上的成功樣本後，ASR 可用歷史 RTF 顯示標記為 `estimated`／`~` 的 ETA。這是近似值，可能隨音訊內容、機器負載與 checkpoint 校準而上升或下降；真正完成前不會到達零。
-- 沒有足夠、相容且有效的 RTF 證據時，不會從很小的初期百分比硬推 ETA，而是只顯示已用時間。
-- 效能樣本存放在 `<cache-dir>/performance.json`，不屬於 transcript cache key；刪除或損毀只會失去 ETA，不會使辨識失敗。
-- transcript cache 命中時，音訊擷取、模型準備與 ASR 會明確顯示為 `skipped`。
+`build_media.py` 下載並驗證固定的 FFmpeg 原始碼，建置僅處理本機檔案的 FFmpeg／FFprobe，不連結 Homebrew 函式庫。`build_runtime.py` 使用 PyInstaller 收集推論環境並放入 App。
 
-若要把執行紀錄保存到檔案，建議使用 `--progress plain`。不要強制 `--progress rich` 後再重定向，否則檔案會包含終端控制碼。
+`verify_runtime.py` 從 App 路徑驗證套件匯入、OpenCC 轉換及媒體正規化，刻意排除開發機 Python 與 Homebrew PATH。報告位於 `build/desktop/runtime-verification.json`。缺少內建元件時，CLI 診斷會回傳代碼 `3`。
 
-## Long-form transcription
+### 3. 建立開發簽署副本
 
-超過 30 分鐘的音訊會使用可恢復的長內容管線。預設以約 20 分鐘為目標，在 15–30 分鐘範圍內優先尋找鄰近靜音作為切點；找不到靜音時使用小型 overlap，最後依全域 timestamps 與文字邊界合併。
-
-- 同一任務的 pending chunks 共用一個 model session，避免每段重新載入模型。
-- 每個成功 chunk 都會原子寫入 `<cache-dir>/jobs/<key>/longform/chunks/`；中斷後，相同來源、模型 revision、device、語言、hotwords、音訊前處理與 planner identity 才能恢復。
-- `manifest.json` 或個別 checkpoint 損毀時，只重跑不相容的 chunk；不完整 checkpoints 不會冒充完整 transcript cache。
-- Resume progress 以已提交且不重複計算 overlap 的音訊時長，加上當前 chunk estimate 計算，仍標示 `estimated`，merge 與最終 cache 成功前不會到達 100%。
-- 每次成功提交 chunk 後，會用 checkpoint 內有效的實際處理秒數重新校準剩餘 ETA；續跑時已完成 chunk 不再列入剩餘時間，但可作為相容的校準證據。證據缺失或損毀時退回歷史 RTF，兩者都沒有時只顯示 elapsed。
-- `auto` 預設 CPU；舊版長內容 RTF profile 不具備完整品質／環境／資源證據，不再單獨授權自動 GPU。明確指定 `--device` 永遠優先，完整門檻見[裝置政策](desktop/DEVICE-POLICY.md)。
-
-長內容效能資料位於 `<cache-dir>/long-form-performance.json`。若要釋放未完成任務空間，可刪除對應 job 的 `longform/audio/` 暫存內容；刪除 `longform/chunks/` 會失去 resume 能力，但不影響已完成的 `transcript.json`。排查速度時應分別比較 model-load、silence-planning、chunk-asr、normalization 與 chunk-merge spans，並同時觀察 peak RSS、memory pressure 與 swap。
-
-## Model choice
-
-| Model | Best for | Trade-off |
-|---|---|---|
-| `fun-asr-nano` | 中英混合、專業詞彙、口音與上下文 | 模型較大；Mac MPS 相容性需依實機驗證 |
-| `paraformer` | 中文長影片、較低記憶體、成熟時間戳 | 英文術語可能更依賴熱詞 |
-
-模型與 device 是兩個獨立選擇。`--device auto` 在證據不足時選 CPU；桌面版收集合格比較證據的政策已建立，但品質基線尚未完成，目前不會自動升級 GPU。`--device mps` 是強制模式，失敗時不會靜默切換 CPU。
-
-## Output and cache
-
-- 預設輸出：`video.mp4` → `video.srt`
-- 已存在的 SRT 不會被覆寫，除非使用 `--overwrite`
-- 原始影片永不修改
-- ModelScope 模型通常位於 `~/.cache/modelscope`；工具會優先使用其中完整的本機權重，不會因工作 cache 不同而重新下載
-- transcript、中間音訊與進度效能樣本預設放在 `~/Library/Caches/asr-srt`
-- 修改字幕字數、持續時間或繁簡設定時，可重用 transcript，不需重跑 ASR
-- 修改模型、熱詞或辨識設定會建立新快取
-- 可以 `--no-cache` 強制重新辨識
-
-## Troubleshooting
-
-### FFmpeg or ffprobe is missing
-
-```bash
-brew install ffmpeg
+```sh
+build/desktop/packaging-env/bin/python desktop/scripts/collect_notices.py
+python3 desktop/scripts/sign_development.py
 ```
 
-### PyTorch or FunASR is missing
+簽署腳本會在 `/private/tmp` 建立獨立 App 副本，以避免雲端同步目錄的 Finder metadata 干擾簽章，並執行本機 ad-hoc 簽署與嚴格驗證。副本路徑會輸出至終端機，另存於 `build/desktop/development-signing.json`。
 
-確認已啟用 virtual environment，然後執行：
+使用實際副本路徑啟動 App 或檢查服務：
 
-```bash
-python -m pip install -e .
+```sh
+open "/private/tmp/<副本目錄>/ASR Desktop.app"
+
+"/private/tmp/<副本目錄>/ASR Desktop.app/Contents/MacOS/asr-desktop" diagnose --json
+"/private/tmp/<副本目錄>/ASR Desktop.app/Contents/MacOS/asr-desktop" service start
+"/private/tmp/<副本目錄>/ASR Desktop.app/Contents/MacOS/asr-desktop" service status
+"/private/tmp/<副本目錄>/ASR Desktop.app/Contents/MacOS/asr-desktop" service stop
 ```
 
-### MPS failure
+開發版會標示「開發模式」，由 GUI 或 CLI 直接啟動同一使用者的 helper。`build_app.py --distribution` 改用 SMAppService，仍需另行完成正式簽署、公證與生命週期驗收；該參數本身不會完成發行。
 
-`--device auto` 目前以 CPU 保守執行。若要明確排除 MPS 差異：
+### 4. 封裝開發版 DMG（選用）
 
-```bash
-asr-srt video.mp4 --device cpu
+完成 runtime、第三方授權文字收集與簽署後，使用同一份開發副本：
+
+```sh
+python3 desktop/scripts/build_dmg.py --app "/private/tmp/<副本目錄>/ASR Desktop.app"
+python3 desktop/scripts/verify_dmg.py
 ```
 
-### Existing SRT blocks output
+產物為 `build/desktop/ASR-Desktop-development-arm64.dmg`，內含 App、固定依賴與第三方授權文字，不含模型權重。開發簽署與 DMG 驗證不等於 Developer ID 簽署、公證或正式安裝驗收。使用 `sign_development.py --validation-environment` 建立的隔離測試副本不可當作一般開發版封裝。
 
-改用新的 `--output` 路徑，或在確認可替換後加上 `--overwrite`。
+## 測試與驗收
 
-## Tests
+在上述封裝環境準備完成後，可執行 Python 與 Swift 測試：
 
-不載入模型的快速測試：
-
-```bash
-PYTHONPATH=src python -m unittest discover -s tests -v
+```sh
+PYTHONPATH=src build/desktop/packaging-env/bin/python \
+  -m unittest discover -s tests/desktop -v
+python3 desktop/scripts/build_app.py --test
 ```
 
-真實 Apple Silicon 模型評測請參考 `evaluation/manifest.example.json` 與 `evaluation/RESULTS.md`，不要將私人影片或完整 transcript 提交到專案。
+完整 App 的模型與整合驗證另使用獨立建置資料及公開媒體範例：
+
+```sh
+python3 desktop/scripts/prepare_validation_models.py
+python3 desktop/scripts/smoke_models.py
+python3 desktop/scripts/verify_development_service.py --app "/private/tmp/<副本目錄>/ASR Desktop.app"
+build/desktop/packaging-env/bin/python desktop/scripts/verify_batch.py
+python3 desktop/scripts/verify_controls.py
+```
+
+`prepare_validation_models.py` 在 `build/desktop/validation-models` 準備模型，缺少的資產會從 catalog 固定版本下載並核對雜湊。現有開發者 hub 快取僅供讀取，不作為桌面版的模型儲存空間。
+
+模型 catalog 位於 `src/asr_desktop/data/models.json`；維護者需要更新固定版本與資產雜湊時，可執行 `python3 desktop/scripts/update_model_catalog.py`。一般使用者下載模型不需更新 catalog。
+
+## 專案結構
+
+以下列出桌面版相關目錄；儲存庫亦保留既有 CLI 與 Drive 服務的程式及部署文件。
+
+```text
+ASR-Desktop/
+├── desktop/
+│   ├── Sources/
+│   │   ├── ASRDesktopApp/       # SwiftUI 桌面介面
+│   │   ├── ASRDesktopCLI/       # 原生 CLI
+│   │   ├── ASRDesktopCore/      # 路徑、通訊、服務與診斷
+│   │   └── ASRDesktopHelper/    # 背景服務啟動入口
+│   ├── Tests/                  # Swift 原生測試
+│   ├── scripts/                # 建置、簽署、封裝與驗證
+│   ├── requirements/           # 桌面版固定依賴與媒體建置設定
+│   ├── packaging/              # PyInstaller hooks
+│   └── Package.swift           # Swift 套件定義
+├── src/
+│   ├── asr_desktop/             # 任務、模型、排程、裝置政策與輸出
+│   └── asr_srt/                 # 本機轉錄與字幕核心
+├── tests/desktop/              # Python 桌面版測試
+└── pyproject.toml              # Python 套件定義
+```
+
+## 延伸文件
+
+| 文件 | 內容 |
+| --- | --- |
+| [USAGE.md](desktop/USAGE.md) | GUI／CLI 操作、任務控制、常見問題與修復 |
+| [MODELS.md](desktop/MODELS.md) | 模型準備、續傳、驗證、移除及離線使用 |
+| [DEVICE-POLICY.md](desktop/DEVICE-POLICY.md) | CPU／GPU 自動選擇與效能證據要求 |
+| [PROTOCOL.md](desktop/PROTOCOL.md) | 本機通訊協定、操作、事件與錯誤碼 |
+| [VALIDATION.md](desktop/VALIDATION.md) | 歷史測試證據、實測環境與尚未完成的驗收 |
 
 ## Release Notes
+
+以下保留既有版本紀錄；`v0.1.0` 涵蓋 CLI／Drive 服務，不代表桌面版已正式發行。
 
 ### 未發行 — ASR Desktop 開發版
 
