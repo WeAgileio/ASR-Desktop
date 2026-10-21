@@ -6,7 +6,7 @@ enum DesktopCommands {
     static let help = """
     ASR Desktop — Apple Silicon local transcription
       submit PATH... --output-dir DIR [--recursive] [--wait] [--preview]
-        [--model fun-asr-nano|paraformer] [--device auto|cpu|gpu|mps]
+        [--model MODEL_ID] [--device auto|cpu|gpu|mps]
         [--formats txt,srt,json] [--script traditional|simplified|original]
         [--language LANGUAGE] [--hotword WORD] [--overwrite]
       jobs list | show ID | watch ID [--cursor N] | cancel ID | retry ID

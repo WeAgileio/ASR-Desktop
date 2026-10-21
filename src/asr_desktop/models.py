@@ -67,7 +67,13 @@ class ModelStore:
     @staticmethod
     def _validate_definition(definition):
         components = definition["component_definitions"]
-        identity = hashlib.sha256(json.dumps(components, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        content = components
+        if "execution" in definition and definition.get("snapshot_schema") != 2:
+            raise ModelError("invalid_catalog", "Execution settings require a version 2 snapshot identity")
+        if definition.get("snapshot_schema") == 2:
+            from asr_srt.registry import execution
+            content = {"components": components, "execution": execution(definition)}
+        identity = hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         if identity != definition["snapshot_id"]:
             raise ModelError("invalid_catalog", "Snapshot identity does not match its immutable assets")
         for component in components.values():
@@ -156,7 +162,10 @@ class ModelStore:
             return True
 
     def list(self):
-        return [self.status(model["id"]) for model in self.catalog["models"]]
+        from asr_srt.registry import execution
+        return [{**self.status(model["id"]),
+                 **{key: model[key] for key in ("display_name", "requirements") if key in model},
+                 "execution": execution(model)} for model in self.catalog["models"]]
 
     def start(self, identifier):
         definition = self.definition(identifier)

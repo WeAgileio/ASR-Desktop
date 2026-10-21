@@ -58,13 +58,14 @@ def run(config_path):
             options = job["settings"]
             revisions = {key: value["revision"] for key, value in job["model_definition"]["component_definitions"].items()}
             def factory(model):
-                adapter = local_adapter(model, config["component_paths"], revisions)
+                adapter = local_adapter(model, config["component_paths"], revisions, definition=job["model_definition"])
                 # Include all auxiliaries in core cache/checkpoint identity.
                 adapter.model_revision = job["snapshot"]
                 return adapter
             decision = config["device_decision"]
             device, reason = decision["device"], decision["reason"]
             config_value = JobConfig(input_path=Path(job["source"]), model=options["model"], device=device,
+                                     model_definition=job["model_definition"],
                                      language=options["language"], hotwords=tuple(options["hotwords"]),
                                      output_path=delivery.root / "internal.srt", cache_dir=delivery.root / "cache",
                                      overwrite=True, traditional=False,

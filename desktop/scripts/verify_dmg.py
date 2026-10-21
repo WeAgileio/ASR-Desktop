@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Mount a development image read-only and audit relocation and native dependencies."""
 
+import argparse
 import json
 import os
 from pathlib import Path
@@ -12,7 +13,9 @@ MAGIC = {bytes.fromhex(value) for value in ("cffaedfe", "cefaedfe", "feedfacf", 
 
 
 def main():
-    image = ROOT / "build/desktop/ASR-Desktop-development-arm64.dmg"
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--image", type=Path, default=ROOT / "build/desktop/ASR-Desktop-development-arm64.dmg")
+    image = parser.parse_args().image.resolve()
     with tempfile.TemporaryDirectory(prefix="asr-dmg-review-", dir="/private/tmp") as directory:
         mount = Path(directory) / "volume"
         mount.mkdir()
@@ -30,7 +33,7 @@ def main():
                     magic = stream.read(4)
                 if magic not in MAGIC:
                     continue
-                subprocess.run(["/usr/bin/lipo", "-verify_arch", "arm64", str(path)], check=True, capture_output=True)
+                subprocess.run(["/usr/bin/lipo", str(path), "-verify_arch", "arm64"], check=True, capture_output=True)
                 lines = subprocess.check_output(["/usr/bin/otool", "-L", str(path)], text=True).splitlines()[1:]
                 for line in lines:
                     dependency = line.strip().split(" (", 1)[0]

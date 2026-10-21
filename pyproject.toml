@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "asr-srt"
-version = "0.1.0"
+version = "0.2.0b2"
 description = "Local Apple Silicon video-to-SRT generator using FunASR"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -16,6 +16,9 @@ dependencies = [
   "torch>=2.2,<3",
   "torchaudio>=2.2,<3",
   "tiktoken>=0.7,<1",
+  "faster-whisper==1.2.1",
+  "transformers>=4.57.6,<5",
+  "soundfile>=0.12,<1",
 ]
 
 [project.optional-dependencies]

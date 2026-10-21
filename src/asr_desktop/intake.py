@@ -10,11 +10,11 @@ from .database import DEFAULTS, StateError
 from .models import digest_file
 
 
-def settings(value):
+def settings(value, catalog=None):
     if not isinstance(value, dict) or set(value) - set(DEFAULTS):
         raise StateError("invalid_settings", "Unknown transcription setting")
     result = {**DEFAULTS, **value}
-    if result["model"] not in ("fun-asr-nano", "paraformer") or result["device"] not in ("auto", "cpu", "gpu", "mps"):
+    if result["device"] not in ("auto", "cpu", "gpu", "mps"):
         raise StateError("invalid_settings", "Unknown model or device")
     if (not isinstance(result["formats"], list) or not result["formats"] or
         any(f not in ("txt", "srt", "json") for f in result["formats"]) or len(set(result["formats"])) != len(result["formats"])):
@@ -28,6 +28,12 @@ def settings(value):
     if (not isinstance(result["language"], str) or not result["language"] or len(result["language"]) > 64 or
         not isinstance(result["hotwords"], list) or any(not isinstance(w, str) or len(w) > 200 for w in result["hotwords"])):
         raise StateError("invalid_settings", "Invalid language or hotwords")
+    from asr_srt.registry import registration, validate_options
+    from asr_srt.errors import ValidationError
+    try:
+        validate_options(registration(result["model"], catalog), result["device"], result["hotwords"])
+    except ValidationError as error:
+        raise StateError("invalid_settings", str(error)) from error
     return result
 
 
@@ -63,8 +69,8 @@ def probe(path, executable):
     return round(duration * 1000)
 
 
-def preview(paths, output_dir, options, ffprobe, recursive=False):
-    options = settings(options)
+def preview(paths, output_dir, options, ffprobe, recursive=False, catalog=None):
+    options = settings(options, catalog)
     if not isinstance(paths, list) or not paths or any(not isinstance(p, str) for p in paths):
         raise StateError("invalid_arguments", "Provide at least one source path")
     if not isinstance(output_dir, str) or not output_dir:

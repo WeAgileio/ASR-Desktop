@@ -239,14 +239,30 @@ ASR-Desktop/
 
 以下保留既有版本紀錄；`v0.1.0` 涵蓋 CLI／Drive 服務，不代表桌面版已正式發行。
 
-### 未發行 — ASR Desktop 開發版
+### v0.2.0-beta.2 — 2026-10-21
+
+- 新增 Taiwan Tongues ASR CE 與 Breeze ASR 25，可在本機使用 CPU 離線轉錄，輸出 TXT、SRT 與 JSON。
+- 模型頁顯示電腦需求、記憶體建議與下載大小，選單會依模型提供可用裝置。
+- 主視窗加入 karakuri Logo，支援深淺色外觀。
+- 底部新增可點擊的 `karakuri.tech` 來源連結，支援鍵盤聚焦。
+- Dock 與 Finder 顯示專用品牌圖示。
+- 小視窗與長篇處理訊息下，來源連結仍保持可見；Logo 可離線顯示。
+
+提供 Apple Silicon／macOS 14 以上的 DMG 測試版安裝包，模型於安裝後下載。尚未完成 Apple Developer ID 簽署與公證；長內容品質與最低系統版本仍待驗證。
+
+### v0.2.0-beta.1 — 2026-10-21
+
+- 新增 Taiwan Tongues ASR CE 與 Breeze ASR 25，可在本機使用 CPU 離線轉錄，輸出 TXT、SRT 與 JSON。
+- 模型頁顯示電腦需求、記憶體建議與下載大小，選單會依模型提供可用裝置。
 
 - 新增 Apple Silicon 桌面視窗與 CLI，共用持久化批次、取消、重試、模型管理與設定。
 - 安裝包內含辨識 runtime 與媒體工具；模型安裝後下載，使用完整性校驗與安全續傳。
 - 批次輸出繁體 TXT、SRT 及可選原始 JSON，保護來源與既有檔案，匯出失敗可重用已完成辨識。
 - `auto` 改為證據不足時使用 CPU；保留明確 GPU／CPU 與使用者啟動的校準。
 
-驗證限制：已完成兩模型真實短檔批次與 CLI 控制測試；完整 GUI 操作、品質基線、長內容、乾淨 Mac／最低系統與正式簽署仍待驗收。此條目不代表已發布版本。
+測試版安裝包適用於 macOS 14 以上的 Apple Silicon Mac，模型需於安裝後下載。安裝包採本機 ad-hoc 簽署，尚未完成 Apple Developer ID 簽署與公證，macOS 可能阻擋開啟。
+
+驗證限制：兩個新增模型的 CPU 離線短錄音轉錄、TXT／SRT／JSON 輸出及模型需求與選單已通過驗收；品質基線、長內容、乾淨 Mac／最低系統與正式簽署仍待驗收。
 
 ### v0.1.0 — 2026-09-22
 

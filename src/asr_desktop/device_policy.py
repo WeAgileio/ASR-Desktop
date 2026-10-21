@@ -9,12 +9,16 @@ class DevicePolicy:
     def __init__(self, database):
         self.db = database
 
-    def explain(self, snapshot, options, duration_seconds):
+    def explain(self, snapshot, options, duration_seconds, definition=None):
         identity = profile_identity(snapshot, options, duration_seconds)
         key = identity_key(identity)
         row = self.db.connection.execute("SELECT details FROM device_profiles WHERE id=?", (key,)).fetchone()
         profile = json.loads(row[0]) if row else {"identity": identity, "samples": [], "quarantined": False}
         decision = select(identity, profile["samples"], profile.get("quarantined", False))
+        if definition is not None:
+            from asr_srt.registry import execution
+            if "mps" not in execution(definition)["devices"]:
+                decision.update(device="cpu", reason="model_cpu_only", fallback_allowed=False)
         if options["device"] != "auto":
             decision.update(device="mps" if options["device"] in ("gpu", "mps") else "cpu",
                             reason="explicit_device", fallback_allowed=False)

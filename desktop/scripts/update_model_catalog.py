@@ -51,6 +51,7 @@ def main():
     parser.add_argument("--verify-cache", type=Path)
     parser.add_argument("--output", type=Path, default=ROOT / "src/asr_desktop/data/models.json")
     args = parser.parse_args()
+    previous = json.loads(args.output.read_text()) if args.output.exists() else {"models": [], "components": {}}
     components = {}
     for identifier, repository in REPOSITORIES.items():
         api = "https://modelscope.cn/api/v1/models/" + repository
@@ -93,6 +94,12 @@ def main():
         digest = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         models.append({"id": name, "snapshot_id": digest, "components": component_ids,
                        "download_bytes": sum(asset["size"] for key in component_ids for asset in components[key]["assets"])})
+    # A FunASR refresh must not erase separately maintained engine registrations.
+    for model in models:
+        old = next((m for m in previous["models"] if m["id"] == model["id"]), {})
+        model.update({key: old[key] for key in ("display_name", "requirements") if key in old})
+    models.extend(model for model in previous["models"] if model["id"] not in {m["id"] for m in models})
+    components = {**previous["components"], **components}
     catalog = {"schema_version": 1, "default_model": "fun-asr-nano", "components": components, "models": models}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     temporary = args.output.with_suffix(".tmp")

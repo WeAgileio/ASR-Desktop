@@ -130,7 +130,8 @@ class Scheduler:
                   "component_paths": paths, "cancel_file": str(directory / "cancel"),
                   "result_path": str(directory / "result.json"),
                   "media_cache": str(Path(os.environ.get("ASR_DESKTOP_CACHE_DIR", str(Path.home() / "Library/Caches/ASR Desktop"))) / job["id"])}
-        config["device_decision"] = self.workspace.device.explain(job["snapshot"], job["settings"], job["duration_ms"] / 1000)
+        config["device_decision"] = self.workspace.device.explain(job["snapshot"], job["settings"], job["duration_ms"] / 1000,
+                                                                 job["model_definition"])
         atomic_json(config_path, config)
         with self.db.transaction():
             self.db.connection.execute("INSERT INTO attempts VALUES(?,?,?,?,?)", (attempt, job["id"], time.time(), "running", encode({"config_path": str(config_path)})))

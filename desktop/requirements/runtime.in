@@ -9,3 +9,4 @@ sentencepiece==0.2.2
 opencc-python-reimplemented==0.1.7
 rich==14.3.4
 tiktoken==0.13.0
+faster-whisper==1.2.1

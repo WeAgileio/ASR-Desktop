@@ -40,13 +40,16 @@ def diagnose():
             from funasr import AutoModel
             from opencc import OpenCC
             import transformers
+            from faster_whisper import WhisperModel
+            from transformers import WhisperProcessor, WhisperForConditionalGeneration
             from transformers.models.qwen3.configuration_qwen3 import Qwen3Config
             from transformers.models.qwen3.modeling_qwen3 import Qwen3ForCausalLM
             from funasr.register import tables
-        for name in ("funasr", "torch", "torchaudio", "transformers", "modelscope", "tiktoken"):
+        for name in ("funasr", "torch", "torchaudio", "transformers", "modelscope", "tiktoken", "faster-whisper", "ctranslate2", "av", "onnxruntime"):
             report["packages"][name] = metadata.version(name)
         report["mps_available"] = torch.backends.mps.is_available()
         report["auto_model_importable"] = callable(AutoModel)
+        report["whisper_engines_importable"] = all(callable(value) for value in (WhisperModel, WhisperProcessor, WhisperForConditionalGeneration))
         report["qwen3_importable"] = callable(Qwen3Config) and callable(Qwen3ForCausalLM)
         report["traditional_conversion"] = OpenCC("s2twp").convert("字幕转换")
         report["registered_models"] = sorted(tables.model_classes)
@@ -74,15 +77,11 @@ def smoke(config):
 
     disable_network()
     roots = config["component_paths"]
-    for value in roots.values():
-        path = Path(value)
-        if not (path / "model.pt").is_file() or not (path / "config.yaml").is_file():
-            raise ValueError("Incomplete local model component: " + str(path))
-    primary = "nano" if config["model"] == "fun-asr-nano" else "paraformer"
-
     catalog = json.loads(Path(__file__).with_name("data").joinpath("models.json").read_text())
+    from asr_srt.registry import registration, execution
+    definition = config.get("model_definition") or registration(config["model"], catalog)
     revisions = {key: catalog["components"][key]["revision"] for key in roots}
-    adapter = local_adapter(config["model"], roots, revisions)
+    adapter = local_adapter(config["model"], roots, revisions, definition=definition)
     audio = Path(config["audio"])
     with wave.open(str(audio), "rb") as stream:
         duration_ms = round(stream.getnframes() / stream.getframerate() * 1000)

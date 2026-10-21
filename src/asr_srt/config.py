@@ -6,7 +6,9 @@ from .domain import SubtitleSettings
 from .longform import LongFormSettings
 from .errors import ValidationError
 
-SUPPORTED_MODELS = ("fun-asr-nano", "paraformer")
+from .registry import registration, supported_models, validate_options
+
+SUPPORTED_MODELS = supported_models()
 SUPPORTED_DEVICES = ("auto", "mps", "cpu")
 
 
@@ -40,12 +42,13 @@ class JobConfig:
     traditional: bool = True
     subtitle: SubtitleSettings = field(default_factory=SubtitleSettings)
     long_form: LongFormSettings = field(default_factory=LongFormSettings)
+    model_definition: Optional[dict] = field(default=None, repr=False, compare=False)
 
     def __post_init__(self):
-        if self.model not in SUPPORTED_MODELS:
-            raise ValidationError(
-                f"Unsupported model '{self.model}'. Choose: {', '.join(SUPPORTED_MODELS)}"
-            )
+        definition = self.model_definition or registration(self.model)
+        if definition["id"] != self.model:
+            raise ValidationError("Model definition does not match selected model")
+        validate_options(definition, self.device, normalize_hotwords(self.hotwords))
         if self.device not in SUPPORTED_DEVICES:
             raise ValidationError(
                 f"Unsupported device '{self.device}'. Choose: {', '.join(SUPPORTED_DEVICES)}"

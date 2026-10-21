@@ -1,5 +1,90 @@
 {
   "components": {
+    "breeze-asr-25": {
+      "assets": [
+        {
+          "path": "config.json",
+          "sha256": "152f13a1b4535d16edd05a9168553a967e2b42d07feee59b136f0ab14e522aab",
+          "size": 2281,
+          "url": "https://huggingface.co/MediaTek-Research/Breeze-ASR-25/resolve/cffe7ccb404d025296a00758d0a33468bec3a9d0/config.json"
+        },
+        {
+          "path": "generation_config.json",
+          "sha256": "8cd24239c76189ae8125d09f92bf883d7d7aa0893039462b0413ee19a088c1cc",
+          "size": 4289,
+          "url": "https://huggingface.co/MediaTek-Research/Breeze-ASR-25/resolve/cffe7ccb404d025296a00758d0a33468bec3a9d0/generation_config.json"
+        },
+        {
+          "path": "model.safetensors",
+          "sha256": "c5d952b3bc03ea277209aff0ef5b5c4c055d74449ff794c02d8f4e315fdef6b6",
+          "size": 3086761032,
+          "url": "https://huggingface.co/MediaTek-Research/Breeze-ASR-25/resolve/cffe7ccb404d025296a00758d0a33468bec3a9d0/model.safetensors"
+        },
+        {
+          "path": "preprocessor_config.json",
+          "sha256": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+          "size": 339,
+          "url": "https://huggingface.co/MediaTek-Research/Breeze-ASR-25/resolve/cffe7ccb404d025296a00758d0a33468bec3a9d0/preprocessor_config.json"
+        },
+        {
+          "path": "tokenizer.json",
+          "sha256": "ad9d585ff6f7948ae7687f0fbcccf52c9e0ab8105729e542e47a11e2e5f05071",
+          "size": 3930832,
+          "url": "https://huggingface.co/MediaTek-Research/Breeze-ASR-25/resolve/cffe7ccb404d025296a00758d0a33468bec3a9d0/tokenizer.json"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "sha256": "4a5b5d589336cefaef5fd27995c030a42d7fab3de5ac19b6c6fa0afbcbcc4309",
+          "size": 282733,
+          "url": "https://huggingface.co/MediaTek-Research/Breeze-ASR-25/resolve/cffe7ccb404d025296a00758d0a33468bec3a9d0/tokenizer_config.json"
+        },
+        {
+          "path": "special_tokens_map.json",
+          "sha256": "e67ae3a0aaa99abcd9f187138e12db1f65c16a14761c50ef10eef2c174a7a691",
+          "size": 2194,
+          "url": "https://huggingface.co/MediaTek-Research/Breeze-ASR-25/resolve/cffe7ccb404d025296a00758d0a33468bec3a9d0/special_tokens_map.json"
+        },
+        {
+          "path": "added_tokens.json",
+          "sha256": "9715fd2243b6f06a5858b5e32950d2853f73dd5bc201aafcf76f5082a2d8acd1",
+          "size": 34604,
+          "url": "https://huggingface.co/MediaTek-Research/Breeze-ASR-25/resolve/cffe7ccb404d025296a00758d0a33468bec3a9d0/added_tokens.json"
+        },
+        {
+          "path": "normalizer.json",
+          "sha256": "bf1c507dc8724ca9cf9903640dacfb69dae2f00edee4f21ceba106a7392f26dd",
+          "size": 52666,
+          "url": "https://huggingface.co/MediaTek-Research/Breeze-ASR-25/resolve/cffe7ccb404d025296a00758d0a33468bec3a9d0/normalizer.json"
+        },
+        {
+          "path": "merges.txt",
+          "sha256": "2df2990a395e35e8dfbc7511e08c12d56018d8d04691e0133e5d63b21e154dc6",
+          "size": 493869,
+          "url": "https://huggingface.co/MediaTek-Research/Breeze-ASR-25/resolve/cffe7ccb404d025296a00758d0a33468bec3a9d0/merges.txt"
+        },
+        {
+          "path": "vocab.json",
+          "sha256": "8f680bba319e01a653d2e8a5dbc17a9157179e0576e6ce74ce0c06356c6e24f9",
+          "size": 835550,
+          "url": "https://huggingface.co/MediaTek-Research/Breeze-ASR-25/resolve/cffe7ccb404d025296a00758d0a33468bec3a9d0/vocab.json"
+        },
+        {
+          "path": "README.md",
+          "sha256": "a724bfb427e2475086b7a40dd9be3403be063d98eda4b5c8ae6c97a18b77f5a2",
+          "size": 8442,
+          "url": "https://huggingface.co/MediaTek-Research/Breeze-ASR-25/resolve/cffe7ccb404d025296a00758d0a33468bec3a9d0/README.md"
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "609e2cb599f84aaa41d8ef29d8fdb04d164fab22e8d9292ca34a599d0f56a338",
+          "size": 12624,
+          "url": "https://huggingface.co/MediaTek-Research/Breeze-ASR-25/resolve/cffe7ccb404d025296a00758d0a33468bec3a9d0/LICENSE"
+        }
+      ],
+      "license_source": "https://huggingface.co/MediaTek-Research/Breeze-ASR-25/blob/cffe7ccb404d025296a00758d0a33468bec3a9d0/LICENSE",
+      "repository": "MediaTek-Research/Breeze-ASR-25",
+      "revision": "cffe7ccb404d025296a00758d0a33468bec3a9d0"
+    },
     "nano": {
       "assets": [
         {
@@ -165,6 +250,55 @@
       "repository": "iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch",
       "revision": "d488ddd5985989501d57bce7f7a4d4dcfca779d0"
     },
+    "taiwan-tongues": {
+      "assets": [
+        {
+          "path": "config.json",
+          "sha256": "d86b7a7664a12559d644aa210a32ce9a7e03913e794b7ea4fb7182de69e273a7",
+          "size": 2796,
+          "url": "https://huggingface.co/adi-gov-tw/Taiwan-Tongues-ASR-CE-v1.0/resolve/46b5eb7ee167ac2fd06cfe02f40e8fac416e5086/config.json"
+        },
+        {
+          "path": "model.bin",
+          "sha256": "69dd94eda9f4bbfe56f1d11d5074e7798ad9ba30c8fa336b539dbc94dba6ef00",
+          "size": 3086913037,
+          "url": "https://huggingface.co/adi-gov-tw/Taiwan-Tongues-ASR-CE-v1.0/resolve/46b5eb7ee167ac2fd06cfe02f40e8fac416e5086/model.bin"
+        },
+        {
+          "path": "preprocessor_config.json",
+          "sha256": "a6a76d28c93edb273669eb9e0b0636a2bddbb1272c3261e47b7ca6dfdbac1b8d",
+          "size": 339,
+          "url": "https://huggingface.co/adi-gov-tw/Taiwan-Tongues-ASR-CE-v1.0/resolve/46b5eb7ee167ac2fd06cfe02f40e8fac416e5086/preprocessor_config.json"
+        },
+        {
+          "path": "tokenizer.json",
+          "sha256": "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566",
+          "size": 2480466,
+          "url": "https://huggingface.co/adi-gov-tw/Taiwan-Tongues-ASR-CE-v1.0/resolve/46b5eb7ee167ac2fd06cfe02f40e8fac416e5086/tokenizer.json"
+        },
+        {
+          "path": "vocabulary.json",
+          "sha256": "5ad28279db5e546349708b9a74736e2c018737ac5a600f1048f1f26c99b85b47",
+          "size": 1068103,
+          "url": "https://huggingface.co/adi-gov-tw/Taiwan-Tongues-ASR-CE-v1.0/resolve/46b5eb7ee167ac2fd06cfe02f40e8fac416e5086/vocabulary.json"
+        },
+        {
+          "path": "README.md",
+          "sha256": "28dbd8643253c7ab520a258b64b736a21e92c99f65bff3221eac1564e1777cd4",
+          "size": 3437,
+          "url": "https://huggingface.co/adi-gov-tw/Taiwan-Tongues-ASR-CE-v1.0/resolve/46b5eb7ee167ac2fd06cfe02f40e8fac416e5086/README.md"
+        },
+        {
+          "path": "LICENSE",
+          "sha256": "172187370351274e50051d8a8f21004ea8240750bbbf7381cdcc30ac9e51072e",
+          "size": 8579,
+          "url": "https://huggingface.co/adi-gov-tw/Taiwan-Tongues-ASR-CE-v1.0/resolve/46b5eb7ee167ac2fd06cfe02f40e8fac416e5086/LICENSE"
+        }
+      ],
+      "license_source": "https://huggingface.co/adi-gov-tw/Taiwan-Tongues-ASR-CE-v1.0/blob/46b5eb7ee167ac2fd06cfe02f40e8fac416e5086/LICENSE",
+      "repository": "adi-gov-tw/Taiwan-Tongues-ASR-CE-v1.0",
+      "revision": "46b5eb7ee167ac2fd06cfe02f40e8fac416e5086"
+    },
     "vad": {
       "assets": [
         {
@@ -210,8 +344,17 @@
         "nano",
         "vad"
       ],
+      "display_name": "Fun-ASR-Nano",
       "download_bytes": 2145989981,
       "id": "fun-asr-nano",
+      "requirements": {
+        "cpu": "支援 CPU 本機離線推論",
+        "gpu": "可選 MPS；相容性依模型與電腦而異",
+        "minimum_memory": "最低記憶體需求尚未實測驗證",
+        "notes": "下載量與準備空間如下；記憶體建議不作為執行門檻。",
+        "platform": "macOS 14 以上，Apple Silicon（M1 以上）",
+        "recommended_memory": "建議 16 GB RAM 以上（工程估算）"
+      },
       "snapshot_id": "82dc373b891ada5cc7ded019aa02fd281ff53bc79833555a47ea40452eb3b44b"
     },
     {
@@ -220,9 +363,103 @@
         "vad",
         "punctuation"
       ],
+      "display_name": "Paraformer",
       "download_bytes": 1296116062,
       "id": "paraformer",
+      "requirements": {
+        "cpu": "支援 CPU 本機離線推論",
+        "gpu": "可選 MPS；相容性依模型與電腦而異",
+        "minimum_memory": "最低記憶體需求尚未實測驗證",
+        "notes": "下載量與準備空間如下；記憶體建議不作為執行門檻。",
+        "platform": "macOS 14 以上，Apple Silicon（M1 以上）",
+        "recommended_memory": "建議 16 GB RAM 以上（工程估算）"
+      },
       "snapshot_id": "0ed2d8d63b7af190a6f9d699e84c9de721723c2b2bc8076a3942b100b1eba37a"
+    },
+    {
+      "components": [
+        "taiwan-tongues"
+      ],
+      "display_name": "Taiwan Tongues ASR CE",
+      "download_bytes": 3090476757,
+      "execution": {
+        "devices": [
+          "cpu"
+        ],
+        "engine": "faster-whisper",
+        "hotwords": false,
+        "parameters": {
+          "beam_size": 5,
+          "compute_type": "int8"
+        },
+        "primary": "taiwan-tongues",
+        "required_files": {
+          "taiwan-tongues": [
+            "config.json",
+            "model.bin",
+            "preprocessor_config.json",
+            "tokenizer.json",
+            "vocabulary.json"
+          ]
+        }
+      },
+      "id": "taiwan-tongues",
+      "requirements": {
+        "cpu": "支援 CPU 本機離線推論",
+        "gpu": "此版本未提供 GPU／MPS 加速",
+        "minimum_memory": "最低記憶體需求尚未實測驗證",
+        "notes": "實際用量隨錄音長度與解碼設定而變，CPU 轉錄可能耗時。",
+        "platform": "macOS 14 以上，Apple Silicon（M1 以上）",
+        "recommended_memory": "建議 32 GB RAM（官方 CPU 建議，非最低需求）",
+        "source": "https://github.com/adi-gov-tw/Taiwan-Tongues-ASR-CE#建議硬體規格"
+      },
+      "snapshot_id": "973730b941c9999160626d8e5666ba2438c9e1fe7d8ed9b51999700c5c7bf063",
+      "snapshot_schema": 2
+    },
+    {
+      "components": [
+        "breeze-asr-25"
+      ],
+      "display_name": "Breeze ASR 25",
+      "download_bytes": 3092421455,
+      "execution": {
+        "devices": [
+          "cpu"
+        ],
+        "engine": "transformers-whisper",
+        "hotwords": false,
+        "parameters": {
+          "num_beams": 1
+        },
+        "primary": "breeze-asr-25",
+        "required_files": {
+          "breeze-asr-25": [
+            "config.json",
+            "generation_config.json",
+            "model.safetensors",
+            "preprocessor_config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "special_tokens_map.json",
+            "added_tokens.json",
+            "normalizer.json",
+            "merges.txt",
+            "vocab.json"
+          ]
+        }
+      },
+      "id": "breeze-asr-25",
+      "requirements": {
+        "cpu": "支援 CPU 本機離線推論",
+        "gpu": "此版本未提供 GPU／MPS 加速",
+        "minimum_memory": "最低記憶體需求尚未實測驗證",
+        "notes": "實際用量隨錄音長度與解碼設定而變，CPU 轉錄可能耗時。",
+        "platform": "macOS 14 以上，Apple Silicon（M1 以上）",
+        "recommended_memory": "建議 16 GB RAM 以上（工程估算，非已驗證最低需求）",
+        "source": "https://huggingface.co/MediaTek-Research/Breeze-ASR-25"
+      },
+      "snapshot_id": "0efec5ae56dd1aa7f139a77394b25cbc37815bb04baf7f565a44e43c9d8847e8",
+      "snapshot_schema": 2
     }
   ],
   "schema_version": 1

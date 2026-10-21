@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app", type=Path, required=True)
+    parser.add_argument("--output", type=Path, help="Output DMG path")
     args = parser.parse_args()
     app = args.app.resolve()
     info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
@@ -24,13 +25,26 @@ def main():
     required += [app / "Contents/Resources/media" / name for name in ("ffmpeg", "ffprobe")]
     required += [app / "Contents/Resources/runtime/asr-desktop-runtime/asr-desktop-runtime"]
     for executable in required:
-        subprocess.run(["/usr/bin/lipo", "-verify_arch", "arm64", str(executable)], check=True)
+        subprocess.run(["/usr/bin/lipo", str(executable), "-verify_arch", "arm64"], check=True)
     if not (app / "Contents/Resources/licenses/inventory.json").is_file():
         raise SystemExit("Collect third-party notices before packaging")
-    weights = [str(path) for path in app.rglob("*") if path.suffix in (".pt", ".safetensors", ".onnx") and path.is_file()]
+    # These small assets ship with the pinned runtime distributions; they are
+    # not the separately prepared ASR model snapshots.
+    runtime_assets = {
+        "faster_whisper/assets/silero_vad_v6.onnx",
+        "onnxruntime/datasets/logreg_iris.onnx",
+        "onnxruntime/datasets/mul_1.onnx",
+        "onnxruntime/datasets/sigmoid.onnx",
+    }
+    runtime_root = app / "Contents/Resources/runtime/asr-desktop-runtime/_internal"
+    allowed = {runtime_root / name for name in runtime_assets}
+    weights = [str(path) for path in app.rglob("*")
+               if path.suffix in (".pt", ".safetensors", ".onnx") and path.is_file()
+               and not (path in allowed and path.stat().st_size < 10 * 1024 * 1024)]
     if weights:
         raise SystemExit("Do not bundle model weights: " + repr(weights))
-    target = ROOT / "build/desktop/ASR-Desktop-development-arm64.dmg"
+    target = (args.output or ROOT / "build/desktop/ASR-Desktop-development-arm64.dmg").resolve()
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.unlink(missing_ok=True)
     with tempfile.TemporaryDirectory(prefix="asr-dmg-source-", dir="/private/tmp") as directory:
         source = Path(directory)

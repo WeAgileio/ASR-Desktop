@@ -105,6 +105,11 @@ final class DesktopModel: ObservableObject {
          "hotwords": hotwords.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty },
          "max_chars": maxChars, "max_duration_ms": maxDuration]
     }
+    var selectedExecution: [String: Any] {
+        models.first { $0["id"] as? String == selectedModel }?["execution"] as? [String: Any] ?? [:]
+    }
+    var supportsGPU: Bool { (selectedExecution["devices"] as? [String] ?? ["cpu", "mps"]).contains("mps") }
+    var supportsHotwords: Bool { selectedExecution["hotwords"] as? Bool ?? true }
     var submission: [String: Any] {
         ["paths": sources.map(\.path), "output_dir": outputDirectory, "recursive": recursive, "settings": options]
     }
@@ -163,14 +168,33 @@ final class DesktopModel: ObservableObject {
     }
 }
 
+private enum BrandAssets {
+    private static let bundle: Bundle = {
+        if let url = Bundle.main.url(forResource: "ASRDesktop_ASRDesktopApp", withExtension: "bundle"),
+           let packaged = Bundle(url: url) { return packaged }
+        return .module
+    }()
+    static let light = NSImage(contentsOf: bundle.url(forResource: "karakuri-mark-light", withExtension: "pdf")!)!
+    static let dark = NSImage(contentsOf: bundle.url(forResource: "karakuri-mark-dark", withExtension: "pdf")!)!
+}
+
 struct DesktopView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @StateObject private var model = DesktopModel()
     @State private var selectedJob: String?
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Label("ASR Desktop", systemImage: "waveform").font(.headline)
+                HStack(spacing: 8) {
+                    Image(nsImage: colorScheme == .dark ? BrandAssets.dark : BrandAssets.light)
+                        .renderingMode(.original)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(width: 24, height: 24)
+                        .accessibilityHidden(true)
+                    Text("ASR Desktop").font(.headline)
+                }
                 if ApplicationPaths().isDevelopmentBuild {
                     Label("開發模式", systemImage: "hammer").foregroundStyle(.secondary)
                 }
@@ -192,7 +216,15 @@ struct DesktopView: View {
                 if model.busy { ProgressView().controlSize(.small) }
                 Text(model.message.isEmpty ? "錄好的音訊／影片將在本機處理。" : model.message)
                     .font(.callout).textSelection(.enabled)
+                    .lineLimit(2)
                 Spacer()
+                Link("karakuri.tech", destination: URL(string: "https://karakuri.tech")!)
+                    .focusable()
+                    .font(.callout)
+                    .fixedSize()
+                    .layoutPriority(1)
+                    .accessibilityLabel("karakuri.tech")
+                    .accessibilityHint("以預設瀏覽器開啟來源網站")
             }.padding(12)
         }
         .task {
@@ -256,10 +288,14 @@ struct DesktopView: View {
         VStack(alignment: .leading, spacing: 8) {
           HStack {
             Picker("模型", selection: $model.selectedModel) {
-                Text("Fun-ASR-Nano").tag("fun-asr-nano"); Text("Paraformer").tag("paraformer")
+                ForEach(Array(model.models.enumerated()), id: \.offset) { _, item in
+                    Text(item["display_name"] as? String ?? item["id"] as? String ?? "模型")
+                        .tag(item["id"] as? String ?? "")
+                }
             }
             Picker("裝置", selection: $model.device) {
-                Text("自動").tag("auto"); Text("CPU").tag("cpu"); Text("GPU").tag("gpu")
+                Text("自動").tag("auto"); Text("CPU").tag("cpu")
+                if model.supportsGPU { Text("GPU").tag("gpu") }
             }
             Picker("文字", selection: $model.script) {
                 Text("台灣繁體").tag("traditional"); Text("簡體").tag("simplified"); Text("原文").tag("original")
@@ -270,6 +306,11 @@ struct DesktopView: View {
             Toggle("SRT", isOn: $model.includeSRT)
             Toggle("JSON", isOn: $model.includeJSON)
           }
+        }
+        .onChange(of: model.selectedModel) {
+            if !model.supportsGPU && ["gpu", "mps"].contains(model.device) { model.device = "auto" }
+            if !model.supportsHotwords { model.hotwords = "" }
+            model.preview = []
         }
     }
 
@@ -351,8 +392,17 @@ struct DesktopView: View {
                 Text("安裝後下載模型").font(.title2.bold())
                 Text("模型全部驗證完成後才會就緒；下載完成後可離線使用。")
                 ForEach(Array(model.models.enumerated()), id: \.offset) { _, item in
-                    GroupBox(item["id"] as? String ?? "模型") {
+                    GroupBox(item["display_name"] as? String ?? item["id"] as? String ?? "模型") {
                         VStack(alignment: .leading, spacing: 10) {
+                            if let requirements = item["requirements"] as? [String: String] {
+                                Text("電腦需求").font(.headline)
+                                ForEach(["platform", "cpu", "gpu", "minimum_memory", "recommended_memory", "notes"], id: \.self) { key in
+                                    if let value = requirements[key] { Text(value).font(.callout).textSelection(.enabled) }
+                                }
+                                if let source = requirements["source"], let url = URL(string: source) {
+                                    Link("模型文件／需求依據", destination: url).font(.caption)
+                                }
+                            }
                             Text("下載量：\(ByteCountFormatter.string(fromByteCount: Int64(item["download_bytes"] as? Int ?? 0), countStyle: .file))")
                             Text("準備所需可用空間：\(ByteCountFormatter.string(fromByteCount: Int64(item["required_free_bytes"] as? Int ?? 0), countStyle: .file))")
                                 .font(.caption).foregroundStyle(.secondary)
@@ -383,6 +433,8 @@ struct DesktopView: View {
             outputOptions
             TextField("辨識語言", text: $model.language)
             TextField("熱詞（逗號分隔）", text: $model.hotwords)
+                .disabled(!model.supportsHotwords)
+            if !model.supportsHotwords { Text("此模型未提供熱詞設定").font(.caption).foregroundStyle(.secondary) }
             Stepper("字幕每行最多 \(model.maxChars) 單位", value: $model.maxChars, in: 1...100)
             Stepper("字幕最長 \(Double(model.maxDuration) / 1000, specifier: "%.2f") 秒", value: $model.maxDuration, in: 250...30000, step: 250)
             Text("TXT 與 SRT 預設同時輸出；JSON 保留原始辨識文字。變更只影響新提交的任務。")

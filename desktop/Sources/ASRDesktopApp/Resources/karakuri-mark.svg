@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" fill="currentColor" aria-hidden="true" focusable="false">
+  <path d="M24 20h28v120H24z" />
+  <g class="k-upper"><path d="M60 70 109 20h36L83 84z" /></g>
+  <g class="k-lower"><path d="m61 89 22-13 62 64h-36z" /></g>
+  <g class="k-joint"><circle cx="65" cy="80" r="15" fill="#c9e879" /><path d="M62 71h6v18h-6z" /></g>
+</svg>

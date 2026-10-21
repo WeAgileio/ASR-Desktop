@@ -68,16 +68,31 @@ class _SingleCallSession:
 
 
 def supported_models() -> Tuple[str, ...]:
-    return ("fun-asr-nano", "paraformer")
+    from ..registry import supported_models as models
+    return models()
 
 
-def create_adapter(model: str, model_factory: Optional[Callable] = None) -> ASRAdapter:
-    if model == "fun-asr-nano":
+def create_adapter(model: str, model_factory: Optional[Callable] = None, definition=None) -> ASRAdapter:
+    from ..registry import registration, execution
+    definition = definition or registration(model)
+    engine = execution(definition)["engine"]
+    if engine == "funasr-nano":
         from .nano import FunAsrNanoAdapter
         return FunAsrNanoAdapter(model_factory=model_factory)
-    if model == "paraformer":
+    if engine == "funasr-paraformer":
         from .paraformer import ParaformerAdapter
         return ParaformerAdapter(model_factory=model_factory)
+    if engine in ("faster-whisper", "transformers-whisper"):
+        # Standalone CLI shares the desktop's explicitly prepared model store.
+        import os
+        from asr_desktop.models import ModelStore
+        from asr_desktop.offline import local_adapter
+        root = Path(os.environ.get("ASR_DESKTOP_DATA_DIR", str(Path.home() / "Library/Application Support/ASR Desktop")))
+        store = ModelStore(root / "models")
+        pinned = store.definition(model)
+        paths = store.local_paths(pinned["snapshot_id"])
+        revisions = {key: value["revision"] for key, value in pinned["component_definitions"].items()}
+        return local_adapter(model, paths, revisions, model_factory=model_factory, definition=pinned)
     raise ValidationError(
         f"Unsupported model '{model}'. Choose: {', '.join(supported_models())}"
     )

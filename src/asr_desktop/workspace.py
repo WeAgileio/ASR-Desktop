@@ -42,14 +42,14 @@ class Workspace:
         if operation == "device.explain":
             if arguments.get("id"):
                 job = db.job(self._id(arguments))
-                return self.device.explain(job["snapshot"], job["settings"], job["duration_ms"] / 1000)
+                return self.device.explain(job["snapshot"], job["settings"], job["duration_ms"] / 1000, job["model_definition"])
             changes = arguments.get("settings", {})
             duration = arguments.get("duration_seconds", 30)
             if not isinstance(changes, dict) or type(duration) not in (int, float) or not 0 < duration < float("inf"):
                 raise StateError("invalid_arguments", "Provide valid settings and a finite positive duration")
-            options = settings({**db.defaults(), **changes})
+            options = settings({**db.defaults(), **changes}, self.models.catalog)
             definition = self.models.definition(options["model"])
-            return self.device.explain(definition["snapshot_id"], options, duration)
+            return self.device.explain(definition["snapshot_id"], options, duration, definition)
         if operation == "queue.status":
             return {"paused": db.setting("queue_paused")}
         if operation == "jobs.list":
@@ -94,7 +94,7 @@ class Workspace:
         if type(arguments.get("recursive", False)) is not bool:
             raise StateError("invalid_arguments", "recursive must be a boolean")
         return preview(arguments.get("paths"), arguments.get("output_dir"),
-                       {**self.database.defaults(), **changes}, self.ffprobe, arguments.get("recursive", False))
+                       {**self.database.defaults(), **changes}, self.ffprobe, arguments.get("recursive", False), self.models.catalog)
 
     def _mutate(self, operation, arguments):
         db = self.database
@@ -109,6 +109,9 @@ class Workspace:
             if len(valid) != 1:
                 raise StateError("invalid_arguments", "Calibration requires one valid media file")
             definition = self.models.definition(plan["settings"]["model"])
+            from asr_srt.registry import execution
+            if "mps" not in execution(definition)["devices"]:
+                raise StateError("unsupported_device", "This model supports CPU only; CPU/GPU calibration is unavailable")
             state = "queued" if self.models.status(definition["snapshot_id"])["ready"] else "blocked"
             created, ids = time.time(), []
             db.connection.execute("INSERT INTO batches VALUES(?,?,?)", (batch_id, created, encode({"kind": "calibration", **plan})))
@@ -128,7 +131,7 @@ class Workspace:
             value = arguments.get("settings")
             if not isinstance(value, dict):
                 raise StateError("invalid_settings", "Provide a settings object")
-            value = settings({**db.defaults(), **value})
+            value = settings({**db.defaults(), **value}, self.models.catalog)
             db.set_setting("defaults", value)
             return value
         if operation in ("queue.pause", "queue.resume"):

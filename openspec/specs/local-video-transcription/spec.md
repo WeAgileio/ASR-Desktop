@@ -26,19 +26,23 @@ The system SHALL use a local FFmpeg process to extract and normalize source audi
 - **THEN** the system stops before model inference and reports the missing media dependency with an actionable installation hint
 
 ### Requirement: Select a supported ASR model
-The system SHALL allow the user to explicitly select either `fun-asr-nano` or `paraformer` for a transcription job, and SHALL record the selected model and resolved model revision in the result metadata.
+系統 SHALL 允許使用者選擇登錄配置中支援的模型，包括 `fun-asr-nano`、`paraformer`、Taiwan Tongues ASR CE 與 Breeze ASR 25，並於結果 metadata 記錄選用模型與固定版本。
 
 #### Scenario: Fun-ASR-Nano is selected
-- **WHEN** the user selects `fun-asr-nano`
-- **THEN** the system runs the Fun-ASR-Nano-2512 adapter and normalizes its text and character timestamps into the common transcript schema
+- **WHEN** 使用者選擇 `fun-asr-nano`
+- **THEN** 系統使用既有 Fun-ASR-Nano-2512 Adapter，將文字與時間戳轉為共用 transcript
 
 #### Scenario: Paraformer is selected
-- **WHEN** the user selects `paraformer`
-- **THEN** the system runs the paraformer-zh pipeline with VAD and punctuation and normalizes its output into the same common transcript schema
+- **WHEN** 使用者選擇 `paraformer`
+- **THEN** 系統使用既有 paraformer-zh、VAD 與標點流程，輸出共用 transcript
+
+#### Scenario: Additional local model is selected
+- **WHEN** 使用者選擇已登錄且準備完成的 Taiwan Tongues ASR CE 或 Breeze ASR 25
+- **THEN** 系統在本機 CPU 執行對應引擎，並將文字與真實時間戳轉為共用 transcript
 
 #### Scenario: Unsupported model is selected
-- **WHEN** the user supplies a model identifier other than the supported values
-- **THEN** the system rejects the job before downloading or loading a model and lists the supported identifiers
+- **WHEN** 使用者提供未登錄的模型識別碼
+- **THEN** 系統在下載或載入模型前拒絕工作，並列出支援的識別碼
 
 ### Requirement: Support Chinese-dominant mixed-language recognition
 The system SHALL configure each supported model for Chinese-dominant speech while preserving recognized English terms, Latin characters, and casing returned by the model.
@@ -48,15 +52,19 @@ The system SHALL configure each supported model for Chinese-dominant speech whil
 - **THEN** the normalized transcript retains the English text without applying Chinese script conversion to it
 
 ### Requirement: Apply user-provided hotwords
-The system SHALL accept an optional ordered collection of non-empty hotwords, pass them through the selected model adapter using that model's supported parameter format, and include the normalized hotword collection in cache identity metadata.
+系統 SHALL 接受有序且非空的熱詞集合，依選定模型支援的參數格式傳入推論，並將正規化熱詞納入快取識別。模型未支援熱詞時 SHALL 在接受工作前明確拒絕非空熱詞，不得靜默忽略。
 
 #### Scenario: Hotwords are supplied
-- **WHEN** the user supplies one or more valid hotwords
-- **THEN** the system uses them during recognition and records them in the transcript metadata
+- **WHEN** 使用者為支援熱詞的模型提供有效熱詞
+- **THEN** 系統在辨識時使用並記錄熱詞
 
 #### Scenario: No hotwords are supplied
-- **WHEN** the user does not supply hotwords
-- **THEN** the system runs recognition without adding synthetic hotwords
+- **WHEN** 使用者未提供熱詞
+- **THEN** 系統不加入合成熱詞
+
+#### Scenario: Model does not support hotwords
+- **WHEN** 使用者為不支援熱詞的模型指定非空熱詞
+- **THEN** 系統在接受工作前回報該模型不支援熱詞
 
 ### Requirement: Resolve an Apple Silicon inference device
 The system SHALL support `auto`, `mps`, and `cpu` device choices. In `auto` mode it SHALL prefer a usable MPS path and SHALL retry once on CPU when a recognized MPS compatibility failure occurs.
@@ -113,4 +121,15 @@ The system SHALL report the current phase of validation, audio extraction, model
 #### Scenario: A processing phase fails
 - **WHEN** any phase cannot complete
 - **THEN** the system identifies the failed phase, returns a non-zero result, and does not claim that an SRT was successfully generated
+
+### Requirement: Validate model device capabilities
+系統 SHALL 在接受工作前依選定模型的裝置能力驗證設定。第一階段兩個新增模型 SHALL 支援 CPU，`auto` SHALL 選擇 CPU；明確指定不支援的 GPU 或 MPS SHALL 被拒絕。既有模型的裝置政策 SHALL 維持原有行為。
+
+#### Scenario: Additional model uses automatic device selection
+- **WHEN** 使用者為任一新增模型選擇 `auto`
+- **THEN** 系統選擇 CPU 並記錄實際執行裝置
+
+#### Scenario: Additional model is explicitly assigned an unsupported device
+- **WHEN** 使用者為僅支援 CPU 的模型選擇 GPU 或 MPS
+- **THEN** 系統在接受工作前說明該模型支援的裝置
 
