@@ -101,6 +101,8 @@ python3 desktop/scripts/package_release.py --reuse-runtime
 
 `.github/workflows/desktop-release.yml` 使用 macOS 15 ARM64 runner，安裝固定 Python 3.11.15 與 locked dependencies，執行桌面單元測試、編譯內建 FFmpeg、打包與掛載驗證 DMG，再檢查 frozen runtime 與媒體轉換。
 
+CI 透過 `DEVELOPER_DIR` 明確選用 Xcode 16.4，記錄 Xcode／Swift 版本並執行 Swift 原生測試。品牌圖片資源限定於 MainActor，符合此工具鏈對 AppKit 圖片共用狀態的並行安全檢查。
+
 - 手動測試：在 GitHub → Actions → **Build desktop DMG** → **Run workflow** 選擇分支。成功後從該次執行的 Artifacts 下載 DMG、SHA-256 與 release notes；保留 14 天，不建立 Release。首次使用需先將 workflow 推送到預設分支。
 - 發版：依專案確認流程完成 pull、commit，建立並推送 annotated tag（例如 `v0.2.0-beta.1`）。標籤必須符合 `pyproject.toml` 的 `0.2.0b1`，README 必須已有該版本說明。驗證通過後，Actions 自動以 `gh release create` 建立 GitHub prerelease 並附上 DMG 與校驗檔，不需在本機另外建立 Release。
 - 建置工作僅有讀取權限；發佈工作才使用 GitHub 自動提供的 `GITHUB_TOKEN` 寫入 Release，無須額外的個人 token。相同 Release 已存在時會失敗，不覆寫既有附件。

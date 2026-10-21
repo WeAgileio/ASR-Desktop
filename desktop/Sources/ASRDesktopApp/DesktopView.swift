@@ -168,6 +168,7 @@ final class DesktopModel: ObservableObject {
     }
 }
 
+@MainActor
 private enum BrandAssets {
     private static let bundle: Bundle = {
         if let url = Bundle.main.url(forResource: "ASRDesktop_ASRDesktopApp", withExtension: "bundle"),
