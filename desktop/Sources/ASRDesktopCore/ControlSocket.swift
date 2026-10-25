@@ -7,6 +7,10 @@ public enum ControlSocket {
         return directory + "/control.sock"
     }
 
+    static func timeoutSeconds(for operation: String) -> Int {
+        ["models.verify", "submit", "intake.preview", "jobs.retry"].contains(operation) ? 120 : 3
+    }
+
     public static func request(_ operation: String, arguments: [String: Any] = [:], requestID: String = UUID().uuidString) throws -> Data {
         let directory = URL(fileURLWithPath: path).deletingLastPathComponent().path
         var parentInfo = stat()
@@ -21,7 +25,7 @@ public enum ControlSocket {
         let descriptor = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else { throw ControlError.unavailable }
         defer { Darwin.close(descriptor) }
-        var timeout = timeval(tv_sec: ["models.verify", "submit", "intake.preview"].contains(operation) ? 120 : 3, tv_usec: 0)
+        var timeout = timeval(tv_sec: timeoutSeconds(for: operation), tv_usec: 0)
         var noSignal: Int32 = 1
         setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout.size(ofValue: noSignal)))
         setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout.size(ofValue: timeout)))
@@ -46,6 +50,7 @@ public enum ControlSocket {
         let payload = try JSONSerialization.data(withJSONObject: [
             "protocol_version": 1, "id": requestID, "operation": operation, "arguments": arguments,
         ]) + Data([10])
+        guard payload.count <= 65536 else { throw ControlError.requestTooLarge }
         try payload.withUnsafeBytes { buffer in
             var offset = 0
             while offset < buffer.count {
@@ -71,9 +76,10 @@ public enum ControlSocket {
     }
 
     public enum ControlError: LocalizedError {
-        case unavailable, invalidResponse
+        case unavailable, invalidResponse, requestTooLarge
         public var errorDescription: String? {
             switch self {
+            case .requestTooLarge: "選取項目超過傳輸上限，請縮小選取範圍。"
             case .unavailable: "本機背景服務尚未連線，請先啟動服務並檢查背景執行權限。"
             case .invalidResponse: "背景服務回應無效，請使用相同版本的 App 與 CLI。"
             }

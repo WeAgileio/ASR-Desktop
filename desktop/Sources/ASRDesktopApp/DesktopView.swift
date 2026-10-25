@@ -29,13 +29,32 @@ final class DesktopModel: ObservableObject {
     @Published var preview: [[String: Any]] = []
     @Published var busy = false
     @Published var serviceStopped = false
-    private var refreshing = false
+    @Published var pendingCommand: PendingCommand?
+    @Published var batches: [[String: Any]] = []
+    @Published var batchID = "" { didSet { if oldValue != batchID { queryChanged() } } }
+    @Published var query = "" { didSet { if oldValue != query { queryChanged() } } }
+    @Published var states: Set<String> = [] { didSet { if oldValue != states { queryChanged() } } }
+    @Published var selectedIDs: Set<String> = []
+    @Published var allSelection: [String: Any]?
+    @Published var detail: [String: Any]?
+    @Published var removal: [String: Any]?
+    @Published var inspection: [[String: Any]] = []
+    @Published var inspectionReading = false
+    @Published var compatible = false
+    private var queryState = QueryState()
+    private var searchTask: Task<Void, Never>?
+    private var inspectionTask: Task<Void, Never>?
+    private var inspectionGeneration = 0
+    private var detailGeneration = 0
     private var savedDefaults: [String: Any] = [:]
 
     func connect() async {
         do {
             try await Task.detached { try ServiceClient.ensureReady() }.value
             serviceStopped = false
+            let status = try await call("service.status") as? [String: Any] ?? [:]
+            compatible = TaskCapabilities.supports(status["capabilities"] as? [String] ?? [])
+            guard compatible else { message = "背景服務缺少任務管理能力，請使用相同版本 App 並重新啟動服務。"; return }
             await refresh()
         } catch { message = error.localizedDescription }
     }
@@ -51,24 +70,173 @@ final class DesktopModel: ObservableObject {
         }
         if envelope["success"] as? Bool != true {
             let error = envelope["error"] as? [String: Any]
-            throw NSError(domain: "ASRDesktop", code: 3, userInfo: [NSLocalizedDescriptionKey: error?["message"] as? String ?? "操作失敗，請檢查背景服務與模型狀態。"])
+            throw NSError(domain: "ASRDesktop", code: 3, userInfo: ["serviceCode": error?["code"] as? String ?? "", NSLocalizedDescriptionKey: error?["message"] as? String ?? "操作失敗，請檢查背景服務與模型狀態。"])
         }
         return envelope["result"] ?? [:]
     }
 
+    var selector: [String: Any] {
+        var result: [String: Any] = ["query": query, "states": states.sorted()]
+        if !batchID.isEmpty { result["batch_id"] = batchID }
+        return result
+    }
+    var scopeName: String { batches.first { $0["id"] as? String == batchID }?["name"] as? String ?? "全部任務" }
+    var selectedCount: Int { allSelection?["total"] as? Int ?? selectedIDs.count }
+    var currentSelection: [String: Any] { allSelection?["selector"] as? [String: Any] ?? ["ids": selectedIDs.sorted()] }
+
+    func changePage(_ value: Int) {
+        offset = value; queryState.change()
+        Task { await refresh() }
+    }
+
+    func queryChanged() {
+        detailGeneration += 1
+        offset = 0; selectedIDs = []; allSelection = nil; detail = nil
+        queryState.change()
+        searchTask?.cancel()
+        searchTask = Task {
+            try? await Task.sleep(for: .milliseconds(250))
+            if !Task.isCancelled { await refresh() }
+        }
+    }
+
     func refresh() async {
-        guard !serviceStopped && !refreshing else { return }
-        refreshing = true
-        defer { refreshing = false }
+        guard !serviceStopped && compatible, let generation = queryState.begin() else { return }
         do {
-            let page = try await call("jobs.list", ["offset": offset, "limit": 100]) as? [String: Any] ?? [:]
-            jobs = page["jobs"] as? [[String: Any]] ?? []
-            paused = page["queue_paused"] as? Bool ?? true
-            total = page["total"] as? Int ?? jobs.count
-            counts = page["counts"] as? [String: Int] ?? [:]
+            var arguments = selector; arguments["offset"] = offset; arguments["limit"] = 100
+            let page = try await call("jobs.list", arguments) as? [String: Any] ?? [:]
+            if queryState.accepts(generation) {
+                let updatedJobs = page["jobs"] as? [[String: Any]] ?? []
+                if !NSArray(array: jobs).isEqual(to: updatedJobs) { jobs = updatedJobs }
+                paused = page["queue_paused"] as? Bool ?? true
+                total = page["total"] as? Int ?? jobs.count
+                counts = page["scope_counts"] as? [String: Int] ?? [:]
+                if offset > 0 && offset >= total { offset = max(0, ((total - 1) / 100) * 100); queryState.change() }
+            }
+            var allBatches: [[String: Any]] = []
+            var batchOffset = 0
+            repeat {
+                let page = try await call("batches.list", ["offset": batchOffset, "limit": 500]) as? [String: Any] ?? [:]
+                let items = page["batches"] as? [[String: Any]] ?? []
+                allBatches += items; batchOffset += items.count
+                if batchOffset >= (page["total"] as? Int ?? 0) || items.isEmpty { break }
+            } while true
+            if !NSArray(array: batches).isEqual(to: allBatches) { batches = allBatches }
+            if !batchID.isEmpty && !batches.contains(where: { $0["id"] as? String == batchID }) { batchID = "" }
+            if queryState.accepts(generation), let id = detail?["id"] as? String {
+                let detailVersion = detailGeneration
+                do {
+                    let value = try await call("jobs.show", ["id": id]) as? [String: Any]
+                    if queryState.accepts(generation) && detailVersion == detailGeneration { detail = value }
+                } catch { if detailVersion == detailGeneration { detail = nil } }
+            }
+            if queryState.accepts(generation) && !selectedIDs.isEmpty {
+                let ids = selectedIDs
+                var retained = Set<String>()
+                var scanOffset = 0
+                repeat {
+                    var arguments = selector; arguments["offset"] = scanOffset; arguments["limit"] = 500
+                    let page = try await call("jobs.list", arguments) as? [String: Any] ?? [:]
+                    guard queryState.accepts(generation) else { break }
+                    let rows = page["jobs"] as? [[String: Any]] ?? []
+                    retained.formUnion(rows.compactMap { $0["id"] as? String })
+                    scanOffset += rows.count
+                    if scanOffset >= (page["total"] as? Int ?? 0) || rows.isEmpty { break }
+                } while true
+                if queryState.accepts(generation) { selectedIDs.subtract(ids.subtracting(retained)) }
+            }
+            if queryState.accepts(generation), let selection = allSelection {
+                do { _ = try await call("jobs.selection.preview", ["selector": selection["selector"] ?? [:], "target_token": selection["target_token"] ?? ""]) }
+                catch {
+                    if queryState.accepts(generation) { allSelection = nil; message = "選取目標已變更，請重新選取及確認。" }
+                }
+            }
             models = try await call("models.list") as? [[String: Any]] ?? []
             if let defaults = try await call("settings.show") as? [String: Any] { syncDefaults(defaults) }
         } catch { message = error.localizedDescription }
+        let again = queryState.finish()
+        if again { await refresh() }
+    }
+
+    func showDetail(_ id: String) {
+        detailGeneration += 1
+        let generation = detailGeneration
+        Task {
+            do {
+                let value = try await call("jobs.show", ["id": id]) as? [String: Any]
+                if generation == detailGeneration { detail = value }
+            } catch { if generation == detailGeneration { detail = nil; message = error.localizedDescription } }
+        }
+    }
+    func selectAll() {
+        let captured = selector
+        Task {
+            do {
+                let result = try await call("jobs.selection.preview", ["selector": captured]) as? [String: Any]
+                if NSDictionary(dictionary: captured).isEqual(to: selector) { allSelection = result; selectedIDs = [] }
+            } catch { message = error.localizedDescription }
+        }
+    }
+    func retrySelection() {
+        var arguments: [String: Any] = ["selector": currentSelection]
+        if let token = allSelection?["target_token"] { arguments["target_token"] = token }
+        perform("jobs.retry", arguments)
+    }
+    func previewRemoval(_ selector: [String: Any], label: String, token: String? = nil) {
+        Task {
+            do {
+                var args: [String: Any] = ["selector": selector]
+                if let token { args["target_token"] = token }
+                var value = try await call("jobs.selection.preview", args) as? [String: Any] ?? [:]
+                if !(value["cannot_remove"] as? [[String: Any]] ?? []).isEmpty {
+                    message = "有任務仍執行、取消中或尚未回收；請先停止並等待，再重新確認。"; return
+                }
+                value["label"] = label; removal = value
+            } catch { message = error.localizedDescription; allSelection = nil }
+        }
+    }
+    func reveal(_ job: [String: Any], outputs: Bool) {
+        Task {
+            do {
+                if outputs {
+                    let value = try await call("jobs.show", ["id": job["id"] ?? ""]) as? [String: Any] ?? [:]
+                    let paths = value["delivered_outputs"] as? [String: String] ?? [:]
+                    if paths.isEmpty && !(value["missing_outputs"] as? [String] ?? []).isEmpty { throw FinderLocation.LocationError.missing }
+                    try FinderLocation.reveal(Array(paths.values).sorted())
+                } else { try FinderLocation.reveal([job["source"] as? String ?? ""]) }
+            } catch { message = error.localizedDescription }
+        }
+    }
+
+    func inspectSources() {
+        inspectionGeneration += 1
+        let generation = inspectionGeneration
+        inspectionTask?.cancel(); inspection = []; preview = []
+        guard !sources.isEmpty else { inspectionReading = false; return }
+        inspectionReading = true
+        let args: [String: Any] = ["paths": sources.map(\.path), "recursive": recursive]
+        inspectionTask = Task {
+            defer { if generation == inspectionGeneration { inspectionReading = false } }
+            do {
+                var started: [String: Any] = [:]
+                while !Task.isCancelled && generation == inspectionGeneration {
+                    do { started = try await call("intake.inspect", args) as? [String: Any] ?? [:]; break }
+                    catch {
+                        guard (error as NSError).userInfo["serviceCode"] as? String == "inspection_busy" else { throw error }
+                        try await Task.sleep(for: .milliseconds(300))
+                    }
+                }
+                guard let id = started["id"] as? String else { return }
+                while !Task.isCancelled && generation == inspectionGeneration {
+                    let result = try await call("intake.inspect", ["id": id]) as? [String: Any] ?? [:]
+                    if generation != inspectionGeneration || Task.isCancelled { return }
+                    if result["state"] as? String == "complete" {
+                        inspection = result["entries"] as? [[String: Any]] ?? []; return
+                    }
+                    try await Task.sleep(for: .milliseconds(300))
+                }
+            } catch { if generation == inspectionGeneration && !Task.isCancelled { message = error.localizedDescription } }
+        }
     }
 
     private func syncDefaults(_ defaults: [String: Any]) {
@@ -115,17 +283,47 @@ final class DesktopModel: ObservableObject {
     }
 
     func perform(_ operation: String, _ arguments: [String: Any] = [:]) {
+        guard pendingCommand == nil else { message = "先重送並確認前一次操作結果。"; return }
         Task {
             busy = true
             defer { busy = false }
             do {
-                _ = try await call(operation, arguments)
+                let command = try PendingCommand(operation, arguments: arguments)
+                pendingCommand = command
+                try await sendPending(command)
                 if operation == "service.stop" {
                     serviceStopped = true
                     message = "背景服務正在停止；目前工作完成後結束"
                     return
                 }
-                message = "操作已接受"
+                if operation != "jobs.retry" { message = "操作已接受" }
+                await refresh()
+            } catch { message = error.localizedDescription }
+        }
+    }
+
+    private func sendPending(_ command: PendingCommand) async throws {
+        let data = try await Task.detached { try command.send() }.value
+        let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any] ?? [:]
+        pendingCommand = nil
+        guard envelope["success"] as? Bool == true else {
+            let error = envelope["error"] as? [String: Any] ?? [:]
+            throw NSError(domain: "ASRDesktop", code: 3, userInfo: [NSLocalizedDescriptionKey: error["message"] as? String ?? "操作失敗"])
+        }
+        if let result = envelope["result"] as? [String: Any], let retried = result["retried_count"] as? Int {
+            message = "重試 \(retried) 筆，略過 \(result["skipped_count"] as? Int ?? 0) 筆（狀態不適用）。"
+        }
+        selectedIDs = []; allSelection = nil
+    }
+
+    func resendPending() {
+        guard let command = pendingCommand else { return }
+        Task {
+            busy = true
+            defer { busy = false }
+            do {
+                try await sendPending(command)
+                message = "原請求已確認"
                 await refresh()
             } catch { message = error.localizedDescription }
         }
@@ -182,10 +380,15 @@ private enum BrandAssets {
 struct DesktopView: View {
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var model = DesktopModel()
-    @State private var selectedJob: String?
+    @ObservedObject var updates: ReleaseUpdates
+    @State private var renameID: String?
+    @State private var renameText = ""
 
     var body: some View {
         VStack(spacing: 0) {
+            if model.pendingCommand != nil {
+                Button("重送原請求以確認結果") { model.resendPending() }.disabled(model.busy)
+            }
             HStack {
                 HStack(spacing: 8) {
                     Image(nsImage: colorScheme == .dark ? BrandAssets.dark : BrandAssets.light)
@@ -219,6 +422,7 @@ struct DesktopView: View {
                     .font(.callout).textSelection(.enabled)
                     .lineLimit(2)
                 Spacer()
+                Text(updates.currentLabel).font(.callout).fixedSize().accessibilityLabel("目前版本：\(updates.currentLabel)")
                 Link("karakuri.tech", destination: URL(string: "https://karakuri.tech")!)
                     .focusable()
                     .font(.callout)
@@ -228,6 +432,53 @@ struct DesktopView: View {
                     .accessibilityHint("以預設瀏覽器開啟來源網站")
             }.padding(12)
         }
+        .sheet(isPresented: Binding(get: { renameID != nil }, set: { if !$0 { renameID = nil } })) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("修改批次名稱").font(.headline)
+                TextField("名稱", text: $renameText)
+                Text("\(renameText.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count) / 100 Unicode 字元")
+                HStack {
+                    Button("取消") { renameID = nil }
+                    Button("儲存") { if let id = renameID { model.perform("batches.rename", ["id": id, "name": renameText]) }; renameID = nil }
+                        .disabled(renameText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || renameText.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.count > 100)
+                }
+            }.padding(24).frame(width: 400)
+        }
+        .sheet(isPresented: Binding(get: { model.removal != nil }, set: { if !$0 { model.removal = nil } })) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("移除任務紀錄").font(.headline)
+                Text("\(model.removal?["label"] as? String ?? "選取任務")：\(model.removal?["total"] as? Int ?? 0) 筆")
+                Text("原始影音檔與已產生的 TXT、SRT、JSON 成果都會保留。移除後，無法從原任務查看詳情或重試。")
+                Text("此操作不清理快取或釋放成果空間，且無法復原。")
+                HStack {
+                    Button("取消") { model.removal = nil }
+                    Button("移除 \(model.removal?["total"] as? Int ?? 0) 筆紀錄", role: .destructive) {
+                        if let value = model.removal {
+                            model.perform("jobs.remove", ["selector": value["selector"] ?? [:], "target_token": value["target_token"] ?? ""])
+                        }
+                        model.removal = nil
+                    }.disabled((model.removal?["total"] as? Int ?? 0) == 0)
+                }
+            }.padding(24).frame(width: 460)
+        }
+        .sheet(isPresented: $updates.showNotice) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("有新的 App 版本").font(.title2)
+                Text("目前版本：\(updates.currentLabel)")
+                if let release = updates.candidate { ReleaseDetailsView(release: release) }
+                Text(updates.message).font(.callout)
+                HStack {
+                    Button("稍後提醒") { updates.later() }.keyboardShortcut(.cancelAction)
+                    Button("略過此版本") { updates.skip() }
+                    Spacer()
+                    Button("前往下載") { updates.openDownload { NSWorkspace.shared.open($0) } }
+                        .keyboardShortcut(.defaultAction)
+                }
+                Text("由你自行下載及安裝，現有轉錄會繼續。")
+                    .font(.callout).foregroundStyle(.secondary)
+            }.padding(24).frame(width: 480)
+        }
+        .task { await updates.check() }
         .task {
             await model.connect()
             while !Task.isCancelled {
@@ -246,8 +497,16 @@ struct DesktopView: View {
                 Toggle("包含子資料夾", isOn: $model.recursive)
             }
             List {
-                ForEach(Array(model.sources.enumerated()), id: \.offset) { _, url in
+                ForEach(model.sources, id: \.self) { url in
                     Label(url.path, systemImage: "doc")
+                }
+                if model.inspectionReading { Label("正在讀取各檔時長…", systemImage: "clock") }
+                ForEach(Array(model.inspection.enumerated()), id: \.offset) { _, entry in
+                    HStack {
+                        Text(URL(fileURLWithPath: entry["source"] as? String ?? "").lastPathComponent)
+                        Spacer()
+                        Text(entry["error"] as? String ?? (entry["status"] as? String == "valid" ? MediaDuration.text(entry["duration_ms"] as? Double) : entry["status"] as? String ?? "時長未知"))
+                    }
                 }
                 if model.sources.isEmpty { Text("也可以拖入檔案或資料夾").foregroundStyle(.secondary) }
             }
@@ -267,7 +526,7 @@ struct DesktopView: View {
                     HStack {
                         Text(entry["source"] as? String ?? "")
                         Spacer()
-                        Text(entry["status"] as? String == "valid" ? "可處理" : entry["status"] as? String ?? "")
+                        Text(entry["status"] as? String == "valid" ? "可處理 · " + MediaDuration.text(entry["duration_ms"] as? Double) : entry["status"] as? String ?? "")
                     }
                     if let error = entry["error"] as? String { Text(error).foregroundStyle(.secondary) }
                     if let outputs = entry["outputs"] as? [String: String] {
@@ -279,7 +538,8 @@ struct DesktopView: View {
                 }.frame(minHeight: 80, maxHeight: 160)
             }
         }.padding(12)
-        .onChange(of: model.recursive) { model.preview = [] }
+        .onChange(of: model.sources) { model.inspectSources() }
+        .onChange(of: model.recursive) { model.inspectSources() }
         .onChange(of: model.includeTXT) { model.preview = [] }
         .onChange(of: model.includeSRT) { model.preview = [] }
         .onChange(of: model.includeJSON) { model.preview = [] }
@@ -316,36 +576,90 @@ struct DesktopView: View {
     }
 
     private var jobsView: some View {
-      VStack {
-        HStack {
-            Text("共 \(model.total) 檔 · 完成 \(model.counts["completed", default: 0]) · 失敗 \(model.counts["failed", default: 0]) · 取消 \(model.counts["cancelled", default: 0])")
-            Spacer()
-            Button("上一頁") { model.offset = max(0, model.offset - 100); Task { await model.refresh() } }.disabled(model.offset == 0)
-            Text("\(model.offset + (model.total == 0 ? 0 : 1))–\(model.offset + model.jobs.count)")
-            Button("下一頁") { model.offset += 100; Task { await model.refresh() } }.disabled(model.offset + model.jobs.count >= model.total)
-        }.padding(8)
         HSplitView {
-            List(selection: $selectedJob) {
-                ForEach(Array(model.jobs.enumerated()), id: \.offset) { _, job in
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(URL(fileURLWithPath: job["source"] as? String ?? "").lastPathComponent)
-                        Text(stateLabel(job["state"] as? String ?? "")).font(.caption).foregroundStyle(.secondary)
-                    }.tag(job["id"] as? String ?? "")
+            VStack(alignment: .leading) {
+                Text("批次").font(.headline)
+                Button("全部任務") { model.batchID = "" }
+                List {
+                    ForEach(model.batches.compactMap { $0["id"] as? String }, id: \.self) { id in
+                        if let batch = model.batches.first(where: { $0["id"] as? String == id }) {
+                            Button { model.batchID = id } label: {
+                                VStack(alignment: .leading) {
+                                    Text(batch["name"] as? String ?? id).fontWeight(model.batchID == id ? .bold : .regular)
+                                    Text("\(batch["total"] as? Int ?? 0) 筆 · \(Date(timeIntervalSince1970: batch["created"] as? Double ?? 0).formatted())").font(.caption)
+                                }
+                            }.buttonStyle(.plain)
+                            .contextMenu {
+                                Button("修改批次名稱") { renameText = batch["name"] as? String ?? ""; renameID = id }
+                                Button("重試此批失敗任務") { model.perform("jobs.retry", ["selector": ["batch_id": id], "failed_only": true]) }
+                                Button("移除此批全部任務紀錄", role: .destructive) { model.previewRemoval(["batch_id": id], label: batch["name"] as? String ?? id) }
+                            }
+                        }
+                    }
                 }
-            }.frame(minWidth: 240)
+            }.frame(minWidth: 180, idealWidth: 220)
+            VStack(alignment: .leading) {
+                Text(model.scopeName).font(.headline)
+                TextField("搜尋檔名或批次名稱", text: $model.query)
+                Menu("狀態篩選（\(model.states.isEmpty ? "全部" : String(model.states.count))）") {
+                    ForEach(["blocked", "queued", "running", "cancelling", "completed", "failed", "cancelled", "interrupted"], id: \.self) { state in
+                        Toggle(stateLabel(state), isOn: Binding(get: { model.states.contains(state) }, set: { if $0 { model.states.insert(state) } else { model.states.remove(state) } }))
+                    }
+                }
+                Text("範圍共 \(model.counts.values.reduce(0, +)) 筆 · 符合 \(model.total) 筆").font(.caption)
+                Text(model.counts.keys.sorted().map { "\(stateLabel($0)) \(model.counts[$0] ?? 0)" }.joined(separator: " · ")).font(.caption)
+                HStack {
+                    Button("全選符合結果") { model.selectAll() }
+                    Button("清除選取") { model.selectedIDs = []; model.allSelection = nil }
+                    Text("已選 \(model.selectedCount)")
+                }
+                HStack {
+                    Button("重試選取") { model.retrySelection() }
+                    Button("移除任務紀錄") { model.previewRemoval(model.currentSelection, label: "選取任務", token: model.allSelection?["target_token"] as? String) }
+                }.disabled(model.selectedCount == 0 || model.busy)
+                List {
+                    ForEach(model.jobs.compactMap { $0["id"] as? String }, id: \.self) { id in
+                        if let job = model.jobs.first(where: { $0["id"] as? String == id }) {
+                            HStack {
+                                Toggle("", isOn: Binding(get: { model.allSelection != nil || model.selectedIDs.contains(id) }, set: { checked in
+                                    model.allSelection = nil
+                                    if checked { model.selectedIDs.insert(id) } else { model.selectedIDs.remove(id) }
+                                })).labelsHidden()
+                                Button { model.showDetail(id) } label: {
+                                    VStack(alignment: .leading) {
+                                        Text(URL(fileURLWithPath: job["source"] as? String ?? "").lastPathComponent)
+                                        Text("\(stateLabel(job["state"] as? String ?? "")) · \(MediaDuration.text(job["duration_ms"] as? Double))").font(.caption)
+                                    }
+                                }.buttonStyle(.plain)
+                            }.contextMenu {
+                                Button("在 Finder 顯示原始檔") { model.reveal(job, outputs: false) }
+                                Button("在 Finder 顯示成果") { model.reveal(job, outputs: true) }
+                                Button("重試此任務") { model.perform("jobs.retry", ["selector": ["ids": [id]]]) }
+                                Button("移除任務紀錄") { model.previewRemoval(["ids": [id]], label: "單筆任務") }
+                            }
+                        }
+                    }
+                    if model.jobs.isEmpty { Text(model.query.isEmpty && model.states.isEmpty ? "此範圍尚無任務" : "目前條件沒有符合的任務") }
+                }
+                HStack {
+                    Button("上一頁") { model.changePage(max(0, model.offset - 100)) }.disabled(model.offset == 0)
+                    Text("\(model.offset + (model.total == 0 ? 0 : 1))–\(model.offset + model.jobs.count)")
+                    Button("下一頁") { model.changePage(model.offset + 100) }.disabled(model.offset + model.jobs.count >= model.total)
+                }
+            }.frame(minWidth: 300, idealWidth: 360)
             ScrollView {
-                if let job = model.jobs.first(where: { $0["id"] as? String == selectedJob }) {
-                    jobDetail(job)
-                } else { Text("選擇任務查看進度與結果").foregroundStyle(.secondary).padding(32) }
-            }.frame(minWidth: 340, maxWidth: .infinity)
-        }
-      }
+                if let job = model.detail { jobDetail(job) }
+                else { Text("選擇任務查看進度與結果").padding() }
+            }.frame(minWidth: 300)
+        }.disabled(!model.compatible)
     }
 
     private func jobDetail(_ job: [String: Any]) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(URL(fileURLWithPath: job["source"] as? String ?? "").lastPathComponent).font(.title2.bold())
             Text(stateLabel(job["state"] as? String ?? ""))
+            Text("媒體時長：" + MediaDuration.text(job["duration_ms"] as? Double))
+            Text("批次：" + (model.batches.first { $0["id"] as? String == job["batch_id"] as? String }?["name"] as? String ?? ""))
             Text(job["source"] as? String ?? "").font(.callout).textSelection(.enabled)
             if let options = job["settings"] as? [String: Any] {
                 Text("模型：\(options["model"] as? String ?? "") · 要求裝置：\(options["device"] as? String ?? "auto")")
@@ -372,13 +686,16 @@ struct DesktopView: View {
             if let error = job["error"] as? [String: Any] { Text(error["message"] as? String ?? "處理失敗").foregroundStyle(.red).textSelection(.enabled) }
             HStack {
                 Button("取消") { model.perform("jobs.cancel", ["id": job["id"] ?? ""]) }
-                Button("重試") { model.perform("jobs.retry", ["id": job["id"] ?? ""]) }
-                Menu("整批操作") {
-                    Button("取消整批") { model.perform("jobs.cancel", ["id": job["batch_id"] ?? ""]) }
-                    Button("重試整批") { model.perform("jobs.retry", ["id": job["batch_id"] ?? ""]) }
-                }
-                Button("開啟輸出資料夾") { NSWorkspace.shared.open(URL(fileURLWithPath: job["output_dir"] as? String ?? "")) }
+                Button("重試") { model.perform("jobs.retry", ["selector": ["ids": [job["id"] ?? ""]]]) }
+                Button("移除任務紀錄") { model.previewRemoval(["ids": [job["id"] ?? ""]], label: "單筆任務") }
             }
+            HStack {
+                Button("在 Finder 顯示原始檔") { model.reveal(job, outputs: false) }
+                Button("在 Finder 顯示成果") { model.reveal(job, outputs: true) }
+            }
+            Text("已交付：" + ((job["delivered_outputs"] as? [String: String] ?? [:]).keys.sorted().joined(separator: "、")))
+            Text("尚未交付：" + ((job["undelivered_outputs"] as? [String] ?? []).joined(separator: "、")))
+            Text("已遺失：" + ((job["missing_outputs"] as? [String] ?? []).joined(separator: "、")))
             if let outputs = job["outputs"] as? [String: String] {
                 ForEach(outputs.keys.sorted(), id: \.self) { format in
                     Text("\(format.uppercased())：\(outputs[format] ?? "")").font(.caption).textSelection(.enabled)
@@ -429,6 +746,7 @@ struct DesktopView: View {
     private var settingsView: some View {
       ScrollView {
         VStack(alignment: .leading, spacing: 20) {
+            UpdateSettingsView(updates: updates)
             Text("新任務的預設值").font(.title2.bold())
             Text(model.defaultsSummary).font(.callout).foregroundStyle(.secondary)
             outputOptions

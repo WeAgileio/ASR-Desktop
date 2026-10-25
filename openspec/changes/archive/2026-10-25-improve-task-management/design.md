@@ -7,12 +7,12 @@
 已查證的現況：
 
 - `database.py` 已有 `batches`、`jobs`、`attempts`、`events` 與安全重送用的 `requests`；批次有 `created` 與 JSON `details`，任務已有 `batch_id`。
-- `workspace.py` 的每次 `submit` 已建立批次；`jobs.list` 只支援批次及分頁，`counts` 仍是全域統計。`jobs.retry` 依單一任務／批次 ID 重試失敗、取消、中斷任務，來源驗證失敗會整筆交易回滾。
+- `workspace.py` 的每次 `submit` 已建立批次；`jobs.list` 只支援批次及分頁，`counts` 已依 `batch_id` 統計，未指定批次時為全域統計。`jobs.retry` 依單一任務／批次 ID 重試失敗、取消、中斷任務，來源驗證失敗會整筆交易回滾。
 - `DesktopView.swift` 每次載入 100 筆任務，以單一選取顯示詳情；既有輸出按鈕直接開啟 `output_dir`。
 - `intake.py` 的 `probe` 已使用內建 FFprobe 取得有限正值的媒體時長，預覽項目與接受後的任務均保存 `duration_ms`；但 GUI 沒有顯示。現有完整預覽還要求輸出目錄與辨識設定，並讀取完整來源指紋，不適合直接當作選檔後的輕量時長讀取。
 - `scheduler.py` 在同一協調程序依序領取任務；執行回收以 attempt 及程序群組為準。尚未完成回收前不能刪除它所需的資料列。
 - `exports.py` 在 `jobs/<job-id>/outputs.json` 保存逐檔交付紀錄，包含失敗前已提交的部分成果；只有預定 `outputs` 路徑不能證明成果已交付。完整成功的 worker 結果另帶 `outputs_ledger`，但列表刻意不回傳整份 ledger。
-- `add-macos-desktop-batch-transcription` 尚未封存，桌面生命週期規格仍在該變更中。本變更以現有程式為基礎，新增獨立管理能力，不將其要求再宣告一次；未完成的安裝／簽署驗收也不列為本變更已完成事項。
+- `add-macos-desktop-batch-transcription` 已於 2026-10-24 同步規格並封存，桌面生命週期契約沿用其主規格。本變更以現有程式為基礎，新增獨立管理能力，不將其要求再宣告一次；未完成的安裝／簽署驗收也不列為本變更已完成事項。
 
 ## Goals / Non-Goals
 
@@ -45,7 +45,7 @@
 
 資料層集中同一份條件解析與目標解析，供列表、結果計數、全選及操作使用。以 SQLite 綁定參數查詢現有 JSON 中的來源／名稱，必要的檔名提取與文字正規化共用同一純函式並可註冊為 SQLite 查詢函式；條件在 `LIMIT/OFFSET` 前生效。避免逐筆載入完整 `db.job` 後再篩選，也不為此引入全文搜尋或額外搜尋資料庫。
 
-回應新增 `scope_counts`（目前批次或全部任務、尚未套文字／狀態）與 `matched_counts`（完整篩選結果）；`total` 是符合結果筆數。原有 `counts` 的全域語意保留，GUI 改用新欄位並明確標示。舊呼叫未提供新條件時，排序、分頁及既有欄位行為不變。
+回應新增 `scope_counts`（目前批次或全部任務、尚未套文字／狀態）與 `matched_counts`（完整篩選結果）；`total` 是符合結果筆數。原有 `counts` 的批次範圍語意保留：指定 `batch_id` 時統計該批，未指定時統計全部任務，皆不受新增文字／狀態條件影響，GUI 改用新欄位並明確標示。舊呼叫未提供新條件時，排序、分頁及既有欄位行為不變。
 
 選擇服務端過濾是為了涵蓋所有分頁；不採用只篩目前 `model.jobs` 的方式。搜尋只處理必要 metadata，不讀音訊、不做來源指紋計算。
 
@@ -95,7 +95,7 @@ Swift 以檔案 URL 與 `NSWorkspace` 的 Finder reveal 能力定位，不拼接
 
 協定仍為版本 1，新增操作納入 `OPERATIONS` 及 `service.status` 現有 capability 清單，既有呼叫的必填欄位及語意不變。新 GUI 連到缺少本次能力的舊 helper 時提示重新啟動相同版本服務，不在舊服務上送出會被忽略的搜尋參數，避免錯把未篩選列表當作搜尋結果。
 
-`batches.rename`、擴充 retry、`jobs.remove` 的事件促使其他客戶端重新讀取權威狀態；已刪任務詳情回報 not_found。CLI 不新增命令，但原有 jobs list/show/retry/cancel/watch 與 request ID 回放須回歸驗證。既有全域 `counts` 不改語意，避免舊客戶端把新範圍統計當作全域數字。
+`batches.rename`、擴充 retry、`jobs.remove` 的事件促使其他客戶端重新讀取權威狀態；已刪任務詳情回報 not_found。CLI 不新增命令，但原有 jobs list/show/retry/cancel/watch 與 request ID 回放須回歸驗證。既有 `counts` 保留批次範圍統計語意，避免撤回先前已驗證的批次統計修正；新 GUI 使用 `scope_counts` 與 `matched_counts` 區分範圍和篩選結果。
 
 ### 8. 加入來源即背景讀取時長，提交後沿用已保存數值
 
@@ -116,7 +116,7 @@ Swift 以檔案 URL 與 `NSWorkspace` 的 Finder reveal 能力定位，不拼接
 - [移除紀錄被誤解為刪除檔案或釋放空間] → 功能名稱、確認視窗及使用文件一致說明保留來源、成果與快取，並明示失去原任務入口。
 - [既有事件／請求回放含已移除任務 ID] → 查詢與刷新以現存資料列為準，移除事件不復活資料，保留安全重送結果但不重新執行 submit。
 - [同名批次、中文／空白路徑或 Finder 路徑競爭] → 用 ID 作身份、名稱搭配提交時間顯示、採檔案 URL 並處理操作當下的路徑失效。
-- [原始桌面變更仍在進行] → 本提案以獨立能力補充現有行為，實作／封存前核對兩個變更的規格關係；不改動或代勾原變更任務。
+- [與原始桌面規格的關係] → 本提案以獨立能力補充現有行為，實作／封存前核對兩個變更的規格關係；不改動或代勾原變更任務。
 
 ## Migration Plan
 

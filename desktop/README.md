@@ -12,6 +12,14 @@
 python3 desktop/scripts/build_app.py
 ```
 
+專案位於 iCloud 等同步目錄時，可指定本機 Swift 建置暫存目錄，避免同步 metadata 干擾編譯產物簽章：
+
+```sh
+python3 desktop/scripts/build_app.py --scratch-path /private/tmp/asr-desktop-swift
+```
+
+此選項只改變 Swift 暫存路徑，組裝完成的 App 仍輸出至 `build/desktop/ASR Desktop.app`。
+
 產物位於 `build/desktop/ASR Desktop.app`。建置腳本明確使用 arm64 與 macOS 14 deployment target，並逐一檢查三個執行檔架構。完整 runtime 依下節另行收集；目前為開發 App，完整 GUI、品質／長語料與正式安裝驗收尚未完成。
 
 ```sh
@@ -148,3 +156,35 @@ python3 desktop/scripts/verify_controls.py
 ```
 
 These use separate build data and public media. They verify real packaged batches, exports, cancellation, retry, request replay, Ctrl-C, calibration, partial failure and exit codes. `build_runtime.py --clean` forces new analysis and checks that runtime sources remain unchanged during freezing; fingerprints are saved in `runtime-build-inputs.json`.
+
+## 更新版本與安裝資產契約
+
+App 以 `ASRDesktopReleaseVersion` 的完整版本判定更新；`0.2.0b2` 顯示為
+`v0.2.0-beta.2`，正式版為 `vX.Y.Z`。不使用建置號或 Release 發表日期排序。
+目前下載候選只接受本專案 Release 中完整上傳且非空的
+`ASR-Desktop-<tag>-arm64.dmg`，平台契約為 Apple Silicon／macOS 14+。
+正式版只提示正式版；beta 版可收到較新的 beta 或正式版。草稿、版本標記不符、
+原始碼壓縮檔與缺 DMG 的 Release 不會成為候選。未來提高最低系統需求前，
+須先擴充相容性 metadata 與客戶端判定，不能只沿用此檔名契約。
+
+### Actions 指定版本補包
+
+`Build desktop DMG` 的手動執行提供兩種模式：
+
+- `build-only`（預設）：以選取的 workflow revision 建置，只保留 Actions Artifact，不建立或修改 GitHub Release；`release_tag` 不使用。
+- `repair-release`：`release_tag` 必填既有 annotated beta tag，例如 `v0.2.0-beta.2`。控制腳本來自選取的 workflow revision；產品與打包工具來自該 tag 指向的獨立 immutable commit checkout。分支名、輕量 tag、版本／README 不符或舊 tag 缺工具會失敗，不以 main 產品程式替代。
+
+Beta tag push 仍自動建置及發布。補包與 push 共用 tag concurrency group；只有 publish job 有 `contents:write`，產品建置步驟不提供發布 token。README 須包含目標 `### vX.Y.Z-beta.N` 的非空版本說明。
+
+| 既有 Release 資產 | 補包行為 |
+| --- | --- |
+| 無 Release 或兩檔皆無 | 從 tag 建置驗證，必要時建立 Prerelease，補上 DMG 與 `.sha256` |
+| 只有 DMG | 下載並掛載驗證既有 DMG，按原檔產生校驗檔，不重建 DMG |
+| 只有校驗檔 | 建置結果必須符合既有 SHA-256，否則停止 |
+| 兩檔齊全 | 下載核對版本、封裝及 SHA-256，相符則不修改 |
+
+已有 Release 的標題、本文、草稿狀態及其他資產保持原狀；beta tag 配正式版標記視為衝突。草稿補包後仍是草稿，不會自動發布。所有上傳不強制覆寫；若 hash 上傳失敗但 DMG 成功，可用同一 tag 重跑，流程會從已有 DMG 續做。若已有檔案內容不符、tag 移動或資產未完成上傳，須先由維護者調查，不能以重跑覆蓋衝突。
+
+Artifact 內 `plan.json` 記錄控制來源與產品 commit／tag object，`verified.json` 記錄本機驗證摘要，publish 的 `publication.json` 與 job 摘要記錄遠端資產 ID、尺寸、SHA-256 與 Release 連結。發布前再讀 tag／資產，上傳後重新下載核對；部分成功會列出已存在的資產，不能視為完整發布。
+
+Actions Artifact（保留 14 天）是建置產物；GitHub Release Assets 才是 App 查詢的下載來源。本流程仍限 beta／ad-hoc 簽署、macOS 14+ arm64，未包含 Developer ID 正式簽署或 Apple 公證；校驗碼也不取代簽署或公證。

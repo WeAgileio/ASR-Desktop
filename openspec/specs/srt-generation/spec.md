@@ -1,7 +1,9 @@
 # srt-generation Specification
 
 ## Purpose
-TBD - created by archiving change build-local-video-srt-generator. Update Purpose after archive.
+
+將具時間戳的共用逐字稿轉為可重現、符合 SRT 格式且易於閱讀的字幕，依標點、停頓、顯示長度與時間限制分段，支援臺灣繁體中文轉換並保留英文內容，確保字幕時間軸有效且輸出不會未經授權覆寫既有檔案或修改來源媒體。
+
 ## Requirements
 ### Requirement: Generate subtitle cues from timestamps
 The system SHALL deterministically convert an ordered common transcript into subtitle cues using punctuation, silence gaps, display length, and cue duration constraints.

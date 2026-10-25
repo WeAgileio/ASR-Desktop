@@ -66,7 +66,7 @@ def probe(path, executable):
             raise ValueError()
     except (TypeError, ValueError):
         raise StateError("invalid_media", "A finite positive media duration is required")
-    return round(duration * 1000)
+    return max(1, round(duration * 1000))
 
 
 def preview(paths, output_dir, options, ffprobe, recursive=False, catalog=None):
@@ -111,21 +111,54 @@ def preview(paths, output_dir, options, ffprobe, recursive=False, catalog=None):
         except (StateError, OSError, ValueError, subprocess.SubprocessError) as error:
             entries.append({"source": str(resolved), "status": "invalid", "error": str(error),
                             "error_code": getattr(error, "code", "input_unavailable")})
+    for path, root in discover(paths, recursive):
+        add(path, root)
+    return {"entries": entries, "valid_count": sum(e["status"] == "valid" for e in entries),
+            "output_dir": str(output), "settings": options}
+
+
+def discover(paths, recursive=False):
+    if not isinstance(paths, list) or not paths or any(not isinstance(p, str) for p in paths):
+        raise StateError("invalid_arguments", "Provide at least one source path")
+    if type(recursive) is not bool:
+        raise StateError("invalid_arguments", "recursive must be boolean")
     for source in paths:
         path = Path(source).expanduser().absolute()
         if path.is_symlink():
-            add(path, None)
+            yield path, None
         elif path.is_dir():
             # os.walk does not follow directory symlinks; still report them explicitly.
             for directory, subdirs, files in os.walk(path, followlinks=False):
                 for name in sorted(subdirs):
                     candidate = Path(directory) / name
                     if candidate.is_symlink():
-                        add(candidate, path)
+                        yield candidate, path
                 subdirs[:] = sorted(d for d in subdirs if not (Path(directory) / d).is_symlink()) if recursive else []
                 for name in sorted(files):
-                    add(Path(directory) / name, path)
+                    yield Path(directory) / name, path
         else:
-            add(path, None)
-    return {"entries": entries, "valid_count": sum(e["status"] == "valid" for e in entries),
-            "output_dir": str(output), "settings": options}
+            yield path, None
+
+
+def inspect(paths, ffprobe, recursive=False):
+    """Read only lightweight metadata; bounded concurrency is owned by the service."""
+    entries, seen = [], set()
+    for path, _ in discover(paths, recursive):
+        entry = {"source": str(path), "status": "invalid"}
+        if path.is_symlink():
+            entry["status"] = "symlink_excluded"
+        else:
+            resolved = path.resolve()
+            entry["source"] = str(resolved)
+            if str(resolved) in seen:
+                entry["status"] = "duplicate"
+            else:
+                seen.add(str(resolved))
+                try:
+                    if not resolved.is_file():
+                        raise StateError("input_unavailable", "Not a regular file")
+                    entry.update(status="valid", duration_ms=probe(resolved, ffprobe))
+                except (StateError, OSError, ValueError, subprocess.SubprocessError) as error:
+                    entry.update(error=str(error), error_code=getattr(error, "code", "input_unavailable"))
+        entries.append(entry)
+    return {"entries": entries}

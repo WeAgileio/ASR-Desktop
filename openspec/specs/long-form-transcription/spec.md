@@ -1,7 +1,9 @@
 # long-form-transcription Specification
 
 ## Purpose
-TBD - created by archiving change optimize-long-form-transcription. Update Purpose after archive.
+
+讓長音訊轉錄透過可重現的分段計畫、模型工作階段重用與可恢復的分段檢查點持續執行，將結果合併至一致的全域時間軸，並提供可信的進度與剩餘時間估計；效能與裝置選擇以相容的品質、穩定性及資源證據為依據。
+
 ## Requirements
 ### Requirement: Instrument long-form transcription stages
 The system SHALL measure model loading, VAD or chunk planning, ASR inference, result normalization, and merge time separately for uncached long-form jobs.
@@ -86,30 +88,46 @@ The system SHALL report completed and resumed chunks, current chunk boundaries, 
 - **THEN** running progress remains below 100 percent
 
 ### Requirement: Select long-form device from compatible evidence
-For `auto` device selection, the system SHALL prefer a device with sufficient compatible long-form performance evidence for the explicitly selected model and SHALL retain the existing safe fallback when evidence is absent or execution fails.
+For auto selection, the system SHALL use sufficient compatible evidence for the selected model, actual environment, loading policy, and long-form duration range. GPU eligibility SHALL satisfy the shared performance, quality, and resource gates. Insufficient evidence SHALL select CPU. Explicit choices SHALL remain authoritative, and recognized auto MPS failures SHALL retain the one-time CPU fallback with compatible-checkpoint recovery.
 
 #### Scenario: Comparable CPU and MPS profiles exist
-- **WHEN** sufficient valid long-form profiles exist for the same model revision and runtime on both devices
-- **THEN** auto mode selects the device with the lower robust RTF that has not violated configured stability or memory guardrails
+- **WHEN** sufficient valid long-form profiles exist for the same immutable model snapshot, environment, recognition settings, loading policy, and duration range on both devices
+- **THEN** auto selects MPS only if its robust comparable cost improves upon CPU by the required margin and its stability, quality, timestamp, and resource gates pass; otherwise it selects CPU
 
 #### Scenario: Compatible evidence is insufficient
-- **WHEN** no device has sufficient comparable long-form evidence
-- **THEN** the system uses the configured conservative default and clearly records that the selection was not benchmark-derived
+- **WHEN** no sufficient comparable long-form evidence exists
+- **THEN** the system uses CPU and clearly records that the selection was a conservative default rather than a benchmark-derived GPU choice
 
 #### Scenario: The user explicitly selects a device
-- **WHEN** the user chooses `cpu` or `mps` explicitly
+- **WHEN** the user chooses cpu or mps explicitly
 - **THEN** benchmark profiles do not override that choice
 
+#### Scenario: Only short calibration evidence exists
+- **WHEN** a long recording is submitted after successful short-sample calibration
+- **THEN** short-sample evidence does not qualify the GPU for automatic selection in the long recording's duration range
+
+#### Scenario: GPU failure changes checkpoint compatibility
+- **WHEN** auto falls back from MPS to CPU during a long-form attempt
+- **THEN** the system reuses only checkpoints valid for the CPU-compatible attempt and does not combine incompatible GPU results with new CPU chunks
+
 ### Requirement: Gate performance tuning on quality and resources
-The system MUST NOT adopt a long-form batching, VAD, model, or device default solely because it is faster; candidate settings SHALL satisfy transcript, timestamp, memory, and stability acceptance criteria against a recorded baseline.
+The system MUST NOT adopt a long-form batching, VAD, model, or device default solely because it is faster; candidate settings SHALL satisfy transcript, timestamp, measured memory, and stability acceptance criteria against a recorded baseline. Unavailable required resource measurements SHALL be recorded as unknown and SHALL not qualify a candidate for automatic adoption.
 
 #### Scenario: A candidate improves RTF safely
-- **WHEN** a candidate produces the required RTF improvement without unacceptable transcript or timestamp regression, sustained swap growth, memory-limit violation, or failed chunks
-- **THEN** the evaluation report marks it eligible for adoption
+- **WHEN** a candidate produces the required RTF improvement without unacceptable transcript or timestamp regression, sustained swap growth, memory-limit violation, or failed chunks and required measurements are available
+- **THEN** the evaluation report marks it eligible for adoption within its measured environment and workload range
 
 #### Scenario: A faster candidate violates a guardrail
 - **WHEN** a candidate is faster but violates any configured quality, memory, or stability threshold
-- **THEN** the existing default remains unchanged and the rejection reason is recorded
+- **THEN** the existing safe default remains unchanged and the rejection reason is recorded
+
+#### Scenario: Resource measurements are unavailable
+- **WHEN** a long-form candidate lacks a required memory-pressure or swap observation
+- **THEN** transcription can still finish, the observation is marked unknown, and the sample is ineligible for automatic default promotion
+
+#### Scenario: Resumed work appears faster
+- **WHEN** a run skips previously committed chunks or uses a completed transcript cache
+- **THEN** it does not become a full-workload device-comparison sample merely because its elapsed time is low
 
 ### Requirement: Checkpoint-calibrated long-form ETA
 The system SHALL recalibrate long-form remaining time from compatible historical RTF evidence and processing evidence from successfully committed chunks. Remaining work MUST use unique non-overlap source duration so planned overlap is not counted twice.

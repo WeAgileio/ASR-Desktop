@@ -7,8 +7,10 @@ from .database import Database, NONTERMINAL, StateError, encode, new_id
 from .intake import preview, settings, source_matches
 from .models import ModelStore
 from .device_policy import DevicePolicy
+from .inspection import Inspections
 
-OPERATIONS = ("intake.preview", "submit", "jobs.list", "jobs.show", "jobs.cancel", "jobs.retry",
+OPERATIONS = ("intake.inspect", "intake.preview", "submit", "jobs.list", "jobs.show", "jobs.cancel", "jobs.retry",
+              "batches.list", "batches.rename", "jobs.selection.preview", "jobs.remove", "jobs.retry.selection", "jobs.list.query",
               "queue.status", "queue.pause", "queue.resume", "models.list", "models.download", "models.verify", "models.remove",
               "settings.show", "settings.set", "device.explain", "device.calibrate", "events.poll")
 
@@ -19,6 +21,7 @@ class Workspace:
         self.database = Database(self.root / "workspace.sqlite3")
         self.models = ModelStore(self.root / "models", catalog=catalog, references=self.database.references)
         self.device = DevicePolicy(self.database)
+        self.inspections = Inspections(ffprobe)
         # The scheduler reconciles old process groups before it accepts new work.
         with self.database.transaction():
             self.database.set_setting("queue_paused", True)
@@ -29,6 +32,10 @@ class Workspace:
         if not isinstance(arguments, dict):
             raise StateError("invalid_arguments", "arguments must be an object")
         db = self.database
+        if operation == "intake.inspect":
+            return self.inspections.dispatch(arguments)
+        if operation == "batches.list":
+            return db.batches(arguments.get("offset", 0), arguments.get("limit", 100))
         if operation == "models.list":
             return self.models.list()
         if operation in ("models.download", "models.verify", "models.remove"):
@@ -54,12 +61,14 @@ class Workspace:
             return {"paused": db.setting("queue_paused")}
         if operation == "jobs.list":
             batch_id = arguments.get("batch_id")
-            if batch_id is not None and not isinstance(batch_id, str):
-                raise StateError("invalid_arguments", "batch_id must be a string")
-            total = db.connection.execute("SELECT COUNT(*) FROM jobs WHERE batch_id=?", (batch_id,)).fetchone()[0] if batch_id else db.connection.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
-            counts = {row["state"]: row["count"] for row in db.connection.execute("SELECT state,COUNT(*) AS count FROM jobs GROUP BY state")}
-            return {"jobs": db.jobs(arguments.get("offset", 0), arguments.get("limit", 100), batch_id), "total": total, "counts": counts,
-                    "queue_paused": db.setting("queue_paused")}
+            query, states = arguments.get("query", ""), arguments.get("states")
+            counts = db.job_counts(batch_id)
+            matched = db.job_counts(batch_id, query, states)
+            return {"jobs": db.jobs(arguments.get("offset", 0), arguments.get("limit", 100), batch_id, query, states),
+                    "total": sum(matched.values()), "counts": counts, "scope_counts": counts,
+                    "matched_counts": matched, "queue_paused": db.setting("queue_paused")}
+        if operation == "jobs.selection.preview":
+            return db.selection(arguments.get("selector"), arguments.get("target_token"))[0]
         if operation == "jobs.show":
             identifier = self._id(arguments)
             if identifier.startswith("batch-"):
@@ -70,12 +79,14 @@ class Workspace:
                     "SELECT state,COUNT(*) AS count FROM jobs WHERE batch_id=? GROUP BY state", (identifier,))}
                 return {"id": identifier, "counts": counts,
                         "jobs": db.jobs(arguments.get("offset", 0), arguments.get("limit", 100), identifier)}
-            return db.job(identifier)
+            from .exports import output_availability
+            job = db.job(identifier)
+            return {**job, **output_availability(job, self.root)}
         if operation == "events.poll":
             return db.events(arguments.get("cursor", 0), arguments.get("limit", 200))
         if operation == "intake.preview":
             return self._preview(arguments)
-        if operation not in ("submit", "jobs.retry", "jobs.cancel", "queue.pause", "queue.resume", "settings.set", "device.calibrate"):
+        if operation not in ("submit", "jobs.retry", "jobs.cancel", "queue.pause", "queue.resume", "settings.set", "device.calibrate", "batches.rename", "jobs.remove"):
             raise StateError("unsupported_operation", "This workspace operation is not available")
         return db.command(request.get("id"), operation, arguments,
                           lambda: self._mutate(operation, arguments))
@@ -98,6 +109,44 @@ class Workspace:
 
     def _mutate(self, operation, arguments):
         db = self.database
+        if operation == "batches.rename":
+            return db.rename_batch(arguments.get("id"), arguments.get("name"))
+        if operation == "jobs.remove" or (operation == "jobs.retry" and "selector" in arguments):
+            if "id" in arguments:
+                raise StateError("invalid_arguments", "id and selector cannot be mixed")
+            selector = arguments.get("selector")
+            token = arguments.get("target_token")
+            if operation == "jobs.remove" and (not isinstance(token, str) or not token):
+                raise StateError("invalid_arguments", "Removal requires a preview target_token")
+            summary, rows = db.selection(selector, token)
+            if operation == "jobs.remove":
+                if summary["cannot_remove"]:
+                    raise StateError("worker_not_reaped", "Stop jobs and wait for worker cleanup, then confirm again", jobs=summary["cannot_remove"])
+                for row in rows:
+                    db.connection.execute("DELETE FROM attempts WHERE job_id=?", (row["id"],))
+                    db.connection.execute("DELETE FROM jobs WHERE id=?", (row["id"],))
+                    db.event("job.removed", row["id"], {"batch_id": row["batch_id"]})
+                for batch_id in {r["batch_id"] for r in rows}:
+                    db.connection.execute("DELETE FROM batches WHERE id=? AND NOT EXISTS(SELECT 1 FROM jobs WHERE batch_id=?)", (batch_id, batch_id))
+                return {"removed_count": len(rows), "job_ids": [r["id"] for r in rows]}
+            failed_only = arguments.get("failed_only", False)
+            if type(failed_only) is not bool:
+                raise StateError("invalid_arguments", "failed_only must be boolean")
+            # Unfiltered batch retry is evaluated at action time; query-all must
+            # retain the selection token to avoid silently adding new matches.
+            if "ids" not in selector and set(selector) != {"batch_id"} and not isinstance(token, str):
+                raise StateError("invalid_arguments", "Query retry requires the selection target_token")
+            eligible_states = ("failed",) if failed_only else ("failed", "cancelled", "interrupted")
+            eligible = [db.job(r["id"]) for r in rows if r["state"] in eligible_states]
+            self._validate_retry_sources(eligible)
+            for job in eligible:
+                state = "queued" if self.models.status(job["snapshot"])["ready"] else "blocked"
+                db.update_job(job["id"], state, {"error": None})
+            skipped = [{"id": r["id"], "reason": r["state"]} for r in rows if r["state"] not in eligible_states]
+            return {"retried_count": len(eligible), "skipped_count": len(skipped), "skipped": skipped,
+                    "job_ids": [j["id"] for j in eligible]}
+        if operation == "jobs.retry" and any(key in arguments for key in ("failed_only", "target_token")):
+            raise StateError("invalid_arguments", "New retry options require selector")
         if operation == "device.calibrate":
             paths = arguments.get("paths")
             if not isinstance(paths, list) or len(paths) != 1:
@@ -172,9 +221,7 @@ class Workspace:
             eligible = [job for job in jobs if job["state"] in ("failed", "cancelled", "interrupted")]
             if not eligible:
                 raise StateError("invalid_state", "Only failed, cancelled or interrupted jobs can be retried")
-            for job in eligible:
-                if not source_matches(job["source"], job["fingerprint"]):
-                    raise StateError("source_changed", "Source content changed; submit a new job", job_id=job["id"])
+            self._validate_retry_sources(eligible)
             for job in eligible:
                 state = "queued" if self.models.status(job["snapshot"])["ready"] else "blocked"
                 db.update_job(job["id"], state, {"error": None})
@@ -183,3 +230,16 @@ class Workspace:
             state = db.job(job["id"])["state"]
             states[state] = states.get(state, 0) + 1
         return {"id": identifier, "job_ids": [job["id"] for job in jobs], "counts": states}
+
+    @staticmethod
+    def _validate_retry_sources(jobs):
+        for job in jobs:
+            try:
+                matches = source_matches(job["source"], job["fingerprint"])
+            except StateError as error:
+                raise StateError(error.code, str(error), job_id=job["id"], source=job["source"]) from error
+            except OSError as error:
+                raise StateError("source_unavailable", "Source cannot be read; restore it before retrying",
+                                 job_id=job["id"], source=job["source"], reason=str(error)) from error
+            if not matches:
+                raise StateError("source_changed", "Source content changed; submit a new job", job_id=job["id"], source=job["source"])

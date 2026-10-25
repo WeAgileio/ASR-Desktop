@@ -155,7 +155,7 @@ class ModelTests(unittest.TestCase):
         def response(request, timeout):
             requests.append(request)
             if request.get_header("Range"):
-                raise HTTPError(request.full_url, 416, "Range unsupported", {}, None)
+                raise HTTPError(request.full_url, 416, "Range unsupported", {}, io.BytesIO(b""))
             return self.opener(request, timeout)
         store.opener = response
         store._download(asset, path, lambda count: None)

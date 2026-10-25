@@ -102,3 +102,29 @@ class Delivery:
         if not all(self.owned(fmt, Path(path)) for fmt, path in self.job["outputs"].items()):
             raise StateError("output_incomplete", "Not all requested outputs passed verification")
         return self.ledger
+
+
+def output_availability(job, workspace):
+    """Detail-only delivery summary; never create a ledger or hash output files."""
+    ledger_path = Path(workspace) / 'jobs' / job['id'] / 'outputs.json'
+    try:
+        ledger = json.loads(ledger_path.read_text())
+        if not isinstance(ledger, dict) or ledger.get('job_id') != job['id'] or not isinstance(ledger.get('files'), dict):
+            ledger = {}
+        legacy = False
+    except FileNotFoundError:
+        ledger, legacy = {}, job['state'] == 'completed'
+    except (OSError, ValueError):
+        ledger, legacy = {}, False
+    delivered, missing, undelivered = {}, [], []
+    for fmt, value in job.get('outputs', {}).items():
+        record = ledger.get('files', {}).get(fmt, {})
+        committed = isinstance(record, dict) and record.get('state') == 'committed' and record.get('path') == value
+        if not committed and not legacy:
+            undelivered.append(fmt)
+        elif Path(value).is_file():
+            delivered[fmt] = value
+        else:
+            missing.append(fmt)
+    return {'delivered_outputs': delivered, 'missing_outputs': missing, 'undelivered_outputs': undelivered,
+            'legacy_outputs': legacy}

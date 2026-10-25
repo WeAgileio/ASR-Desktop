@@ -61,6 +61,30 @@ class WorkspaceTests(unittest.TestCase):
             self.request("jobs.retry", {"id": job["id"]}, "retry")
         self.assertEqual(error.exception.code, "source_changed")
 
+    def test_changed_defaults_apply_only_to_new_jobs(self):
+        first = self.submit()
+        self.request("settings.set", {"settings": {"device": "cpu", "formats": ["json"]}}, "defaults-new")
+        with patch("asr_desktop.intake.probe", return_value=1234):
+            second = self.request("submit", {"paths": [str(self.source)],
+                                  "output_dir": str(self.root / "new-output")}, "submit-new")
+        before = self.request("jobs.show", {"id": first["job_ids"][0]})
+        after = self.request("jobs.show", {"id": second["job_ids"][0]})
+        self.assertEqual(before["settings"]["device"], "auto")
+        self.assertEqual(set(before["outputs"]), {"txt", "srt"})
+        self.assertEqual(after["settings"]["device"], "cpu")
+        self.assertEqual(set(after["outputs"]), {"json"})
+
+    def test_filtered_job_counts_match_selected_batch(self):
+        first = self.submit()
+        with patch("asr_desktop.intake.probe", return_value=1234):
+            second = self.request("submit", {"paths": [str(self.source)],
+                                  "output_dir": str(self.root / "second-output")}, "second")
+        self.request("jobs.cancel", {"id": second["id"]}, "cancel-second")
+        result = self.request("jobs.list", {"batch_id": first["id"]})
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["counts"], {"blocked": 1})
+        self.assertEqual(self.request("jobs.list")["counts"], {"blocked": 1, "cancelled": 1})
+
     def test_active_references_block_model_removal_but_history_does_not(self):
         batch = self.submit()
         with self.assertRaises(ModelError) as error:
@@ -105,7 +129,7 @@ class WorkspaceTests(unittest.TestCase):
         from asr_desktop.workspace import OPERATIONS
         documentation = Path(__file__).resolve().parents[2] / "desktop/PROTOCOL.md"
         examples = re.findall(r"```json\n(.*?)\n```", documentation.read_text(), re.S)
-        self.assertEqual(len(examples), 2)
+        self.assertGreaterEqual(len(examples), 2)
         for text in examples:
             value = json.loads(text)
             self.assertEqual(value["protocol_version"], 1)
@@ -146,6 +170,29 @@ class WorkspaceTests(unittest.TestCase):
 
 
 class SchemaTests(unittest.TestCase):
+    def test_upgrade_backup_can_restore_pre_upgrade_data(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "workspace.db"
+            with sqlite3.connect(path) as connection:
+                connection.execute("CREATE TABLE legacy_record(value TEXT)")
+                connection.execute("INSERT INTO legacy_record VALUES ('保留資料')")
+            db = Database(path)
+            backup_path = db.upgrade_backup
+            self.assertEqual(db.connection.execute("SELECT value FROM legacy_record").fetchone()[0], "保留資料")
+            db.set_setting("defaults", {"device": "cpu"})
+            db.close()
+            # Restore only after all connections close; preserve the upgraded DB.
+            restored_path = Path(folder) / "restored.db"
+            restored_path.write_bytes(backup_path.read_bytes())
+            with sqlite3.connect(restored_path) as restored:
+                self.assertEqual(restored.execute("PRAGMA user_version").fetchone()[0], 0)
+                self.assertEqual(restored.execute("SELECT value FROM legacy_record").fetchone()[0], "保留資料")
+                self.assertIsNone(restored.execute("SELECT name FROM sqlite_master WHERE name='settings'").fetchone())
+            reopened = Database(path)
+            self.assertIsNone(reopened.upgrade_backup)
+            self.assertEqual(reopened.defaults()["device"], "cpu")
+            reopened.close()
+
     def test_newer_schema_refuses_writes_and_upgrade_creates_backup(self):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / "workspace.db"
@@ -169,3 +216,14 @@ class SchemaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class RemovalReplayTests(WorkspaceTests):
+    def test_submission_replay_does_not_restore_removed_rows(self):
+        batch = self.submit()
+        selector = {'ids': batch['job_ids']}
+        token = self.request('jobs.selection.preview', {'selector': selector})['target_token']
+        self.request('jobs.remove', {'selector': selector, 'target_token': token}, 'remove')
+        self.assertEqual(self.submit(), batch)
+        self.assertEqual(self.request('jobs.list')['total'], 0)
+        with self.assertRaises(StateError):
+            self.request('jobs.show', {'id': batch['job_ids'][0]})

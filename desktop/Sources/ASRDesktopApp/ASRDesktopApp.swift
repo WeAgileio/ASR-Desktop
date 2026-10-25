@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct ASRDesktopApp: App {
+    @StateObject private var updates = ReleaseUpdates()
     init() {
         let arguments = Array(CommandLine.arguments.dropFirst())
         if arguments.count == 2 && arguments[0] == "--service-control" {
@@ -14,7 +15,7 @@ struct ASRDesktopApp: App {
 
     var body: some Scene {
         WindowGroup("ASR Desktop") {
-            DesktopView()
+            DesktopView(updates: updates)
                 .frame(minWidth: 860, minHeight: 640)
         }
         .defaultSize(width: 1040, height: 740)

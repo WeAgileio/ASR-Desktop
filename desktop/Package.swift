@@ -15,5 +15,6 @@ let package = Package(
         .executableTarget(name: "ASRDesktopCLI", dependencies: ["ASRDesktopCore"]),
         .executableTarget(name: "ASRDesktopHelper", dependencies: ["ASRDesktopCore"]),
         .testTarget(name: "ASRDesktopCoreTests", dependencies: ["ASRDesktopCore"]),
+        .testTarget(name: "ASRDesktopAppTests", dependencies: ["ASRDesktopApp"]),
     ]
 )

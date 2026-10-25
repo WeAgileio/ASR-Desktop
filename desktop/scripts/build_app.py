@@ -18,6 +18,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--configuration", choices=("debug", "release"), default="release")
     parser.add_argument("--test", action="store_true", help="run the native tests instead of assembling the App")
+    parser.add_argument("--scratch-path", type=Path, default=BUILD / "swift",
+                        help="Swift build directory; use a local path outside cloud sync when needed")
     parser.add_argument("--distribution", action="store_true", help="require the managed service instead of development launch")
     args = parser.parse_args()
     version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
@@ -29,7 +31,7 @@ def main():
     environment["SWIFTPM_MODULECACHE_OVERRIDE"] = str(cache / "swift")
     command = [
         "swift", "test" if args.test else "build", "--package-path", str(ROOT / "desktop"),
-        "--scratch-path", str(BUILD / "swift"),
+        "--scratch-path", str(args.scratch_path),
         "--cache-path", str(cache / "packages"),
         "--config-path", str(cache / "config"),
         "--security-path", str(cache / "security"),

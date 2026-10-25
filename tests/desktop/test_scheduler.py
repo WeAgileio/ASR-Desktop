@@ -10,6 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from asr_desktop.scheduler import Scheduler, group_members
+from asr_desktop.database import StateError
 from asr_desktop.workspace import Workspace
 
 
@@ -135,6 +136,32 @@ class SchedulerTests(unittest.TestCase):
             self.workspace.dispatch({"id": "cancel", "operation": "jobs.cancel", "arguments": {"id": ids[0]}})
             self.pump(lambda: db.job(ids[0])["state"] == "cancelled")
             self.assertFalse(group_members(pid))
+            self.pump(lambda: db.job(ids[1])["state"] == "completed")
+
+    def test_remove_requires_reaped_group_and_reconfirmation(self):
+        ids = self.submit(["stubborn.wav", "good.wav"])
+        db = self.workspace.database
+        selector = {"ids": [ids[0]]}
+        token = db.selection(selector)[0]["target_token"]
+        def remove(token, request_id):
+            return self.workspace.dispatch({"operation": "jobs.remove", "id": request_id,
+                                            "arguments": {"selector": selector, "target_token": token}})
+        with self.ready():
+            db.set_setting("queue_paused", False)
+            self.scheduler.tick()
+            active = self.scheduler.active
+            self.pump(lambda: (active["directory"] / "child.pid").exists())
+            with self.assertRaises(StateError) as caught:
+                remove(token, "stale-remove")
+            self.assertEqual(caught.exception.code, "selection_changed")
+            self.workspace.dispatch({"id": "cancel-for-remove", "operation": "jobs.cancel", "arguments": {"id": ids[0]}})
+            with self.assertRaises(StateError) as caught:
+                remove(db.selection(selector)[0]["target_token"], "active-remove")
+            self.assertEqual(caught.exception.code, "worker_not_reaped")
+            self.assertTrue(group_members(active["process"].pid))
+            self.pump(lambda: db.job(ids[0])["state"] == "cancelled")
+            self.assertFalse(group_members(active["process"].pid))
+            self.assertEqual(remove(db.selection(selector)[0]["target_token"], "stopped-remove")["removed_count"], 1)
             self.pump(lambda: db.job(ids[1])["state"] == "completed")
 
     def test_recovery_reaps_old_worker_and_requires_explicit_retry(self):

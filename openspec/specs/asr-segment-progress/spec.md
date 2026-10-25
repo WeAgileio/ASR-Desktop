@@ -1,7 +1,9 @@
 # asr-segment-progress Specification
 
 ## Purpose
-TBD - created by archiving change add-global-asr-segment-progress. Update Purpose after archive.
+
+利用完整輸入的 VAD 語音片段時長，提供涵蓋整段音訊、依時長加權且明確標示為估計值的辨識進度，避免內部批次計數重置或裝置重試造成誤導；觀測不可改變轉錄結果，資料不足時採用可信的替代進度與獨立時間估計。
+
 ## Requirements
 ### Requirement: Stable whole-input segment workload
 The system SHALL derive a stable whole-input transcription workload only after VAD has produced the complete set of valid speech segments for the input.

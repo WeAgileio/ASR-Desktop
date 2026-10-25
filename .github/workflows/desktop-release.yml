@@ -4,99 +4,119 @@ on:
   push:
     tags: ['v*-beta.*']
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Build an artifact only, or repair assets on an existing annotated beta tag
+        type: choice
+        options: [build-only, repair-release]
+        default: build-only
+        required: true
+      release_tag:
+        description: Existing annotated vX.Y.Z-beta.N tag (required for repair-release)
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 concurrency:
-  group: desktop-release-${{ github.ref }}
+  group: desktop-release-${{ inputs.mode == 'repair-release' && inputs.release_tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      commit: ${{ steps.plan.outputs.commit }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Resolve immutable product source
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ github.event_name == 'push' && 'tag-push' || inputs.mode }}
+          RELEASE_TAG: ${{ github.event_name == 'push' && github.ref_name || inputs.release_tag }}
+        run: python3 desktop/scripts/release_pipeline.py plan --directory release --source . --mode "$MODE" --tag "$RELEASE_TAG"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-plan
+          path: release/plan.json
+          if-no-files-found: error
+
   build:
+    needs: plan
     runs-on: macos-15
     timeout-minutes: 90
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
-    outputs:
-      tag: ${{ steps.version.outputs.tag }}
     defaults:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout workflow control source
+        uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          path: control
           persist-credentials: false
-
-      - name: Report Xcode toolchain
-        run: |
-          xcodebuild -version
-          swift --version
-
+      - name: Checkout immutable product source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.plan.outputs.commit }}
+          path: source
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-plan
+          path: release
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: latest-known
           enable-cache: false
-
-      - name: Prepare locked Python environment
+      - name: Prepare Python and inspect toolchain
         run: |
           test "$(uname -m)" = arm64
+          xcodebuild -version
+          swift --version
           uv python install 3.11.15
-          uv venv --managed-python --python 3.11.15 build/desktop/packaging-env
-          uv pip install --python build/desktop/packaging-env/bin/python \
-            -r desktop/requirements/runtime.lock -r desktop/requirements/build.lock
-          echo "$GITHUB_WORKSPACE/build/desktop/packaging-env/bin" >> "$GITHUB_PATH"
-
-      - name: Validate version, release notes and annotated tag
-        id: version
+          uv venv --managed-python --python 3.11.15 control/build/desktop/control-env
+          echo "$GITHUB_WORKSPACE/control/build/desktop/control-env/bin" >> "$GITHUB_PATH"
+      - name: Validate target version, tools and release notes
+        run: python control/desktop/scripts/release_pipeline.py source --directory release --source source
+      - name: Read existing Release assets
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python control/desktop/scripts/release_pipeline.py prepare --directory release
+      - name: Prepare locked product environment
+        if: steps.prepare.outputs.build == 'true'
+        working-directory: source
         run: |
-          python - <<'PY'
-          import os, re, tomllib
-          from pathlib import Path
-          version = tomllib.loads(Path('pyproject.toml').read_text())['project']['version']
-          match = re.fullmatch(r'(\d+\.\d+\.\d+)b(\d+)', version)
-          if not match:
-              raise SystemExit('Only beta versions are supported by ad-hoc packaging')
-          tag = f'v{match[1]}-beta.{match[2]}'
-          if os.environ['GITHUB_EVENT_NAME'] == 'push' and os.environ['GITHUB_REF_NAME'] != tag:
-              raise SystemExit('Tag does not match pyproject.toml')
-          if not re.search(r'^### ' + re.escape(tag) + r'(?:\s|$)', Path('README.md').read_text(), re.M):
-              raise SystemExit('README release notes missing')
-          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
-              output.write(f'tag={tag}\n')
-          PY
-          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
-            test "$(git cat-file -t "$GITHUB_REF")" = tag
-          fi
-
-      - name: Run desktop unit tests
-        run: PYTHONPATH=src python -m unittest discover -s tests/desktop -v
-
-      - name: Run native unit tests
-        run: python desktop/scripts/build_app.py --test
-
-      - name: Build bundled media tools
-        run: python desktop/scripts/build_media.py
-
-      - name: Build, sign and verify beta DMG
-        run: python desktop/scripts/package_release.py
-
-      - name: Verify frozen runtime and media conversion
-        run: python desktop/scripts/verify_runtime.py
-
-      - name: Upload installable package
+          uv venv --managed-python --python 3.11.15 build/desktop/packaging-env
+          uv pip install --python build/desktop/packaging-env/bin/python -r desktop/requirements/runtime.lock -r desktop/requirements/build.lock
+          echo "$GITHUB_WORKSPACE/source/build/desktop/packaging-env/bin" >> "$GITHUB_PATH"
+      - name: Run product tests and build verified package
+        if: steps.prepare.outputs.build == 'true'
+        working-directory: source
+        run: |
+          PYTHONPATH=src python -m unittest discover -s tests/desktop -v
+          python desktop/scripts/build_app.py --test
+          python desktop/scripts/build_media.py
+          python desktop/scripts/package_release.py
+          python desktop/scripts/verify_runtime.py
+      - name: Verify mounted product and checksum
+        run: python control/desktop/scripts/release_pipeline.py verify --directory release --source source
+      - name: Upload installable package and provenance
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-${{ steps.version.outputs.tag }}-arm64
+          name: desktop-${{ needs.plan.outputs.tag }}-arm64
+          path: release/
           if-no-files-found: error
           compression-level: 0
           retention-days: 14
-          path: |
-            build/desktop/ASR-Desktop-*.dmg
-            build/desktop/ASR-Desktop-*.dmg.sha256
-            build/desktop/release-notes.md
-
       - name: Upload validation reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -104,30 +124,33 @@ jobs:
           name: desktop-validation
           if-no-files-found: ignore
           path: |
-            build/desktop/*verification*.json
-            build/desktop/*verification*.log
+            source/build/desktop/*verification*.json
+            source/build/desktop/*verification*.log
+            control/build/desktop/*verification*.json
 
   publish:
-    if: github.event_name == 'push'
-    needs: build
+    if: needs.plan.outputs.publish == 'true'
+    needs: [plan, build]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
-          name: desktop-${{ needs.build.outputs.tag }}-arm64
+          name: desktop-${{ needs.plan.outputs.tag }}-arm64
           path: release
-      - name: Publish GitHub prerelease
-        working-directory: release
+      - name: Repair missing assets and verify remote bytes
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ needs.build.outputs.tag }}
-        run: |
-          sha256sum --check "ASR-Desktop-${RELEASE_TAG}-arm64.dmg.sha256"
-          gh release create "$RELEASE_TAG" \
-            "ASR-Desktop-${RELEASE_TAG}-arm64.dmg" \
-            "ASR-Desktop-${RELEASE_TAG}-arm64.dmg.sha256" \
-            --verify-tag --prerelease --title "$RELEASE_TAG" --notes-file release-notes.md
+        run: python3 desktop/scripts/release_pipeline.py publish --directory release
+      - name: Retain publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-publication
+          path: release/publication.json
+          if-no-files-found: ignore

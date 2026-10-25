@@ -1,7 +1,9 @@
 # job-progress-reporting Specification
 
 ## Purpose
-TBD - created by archiving change add-asr-progress-reporting. Update Purpose after archive.
+
+讓使用者在本機轉錄各階段取得一致且可信的進度與失敗資訊，明確區分實際進度、估計進度及無法估計的狀態，並在終端機中呈現適當的耗時與剩餘時間，避免將批次計數或工作量單位誤當成整體完成度與時間。
+
 ## Requirements
 ### Requirement: Structured phase lifecycle
 The system SHALL represent every user-visible processing phase with structured lifecycle events containing phase, status, message, elapsed time, and progress kind.

@@ -159,6 +159,7 @@ def serve(root=None):
             signal.signal(number, handler)
         os.close(descriptor)
         if "workspace" in locals():
+            workspace.inspections.close()
             workspace.database.close()
         if data_descriptor is not None:
             os.close(data_descriptor)

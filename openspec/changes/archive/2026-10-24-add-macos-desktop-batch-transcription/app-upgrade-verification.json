@@ -1,0 +1,48 @@
+{
+  "versions": [
+    {
+      "version": "0.1.0",
+      "cli_sha256": "f3dc7db0ddc45c5a9071bc62630f9747e0d6ba38b02e641f015fcf201712f9e8",
+      "runtime_sha256": "9f1239f726d03fdd1353c25b3c8816f4d4076ec500b5977cd191773faa5c7c27"
+    },
+    {
+      "version": "0.2.0b2",
+      "cli_sha256": "c66a35892e36cd76c36c0539b7ad309501891da0871d10af9e164cf94cdc5f38",
+      "runtime_sha256": "8a6ce48d73ecde0eb927fd2d8336fe56cd256816610965bf1e560b20980ce28e"
+    }
+  ],
+  "os": "macOS-26.6.2-arm64-arm-64bit",
+  "phases": [
+    {
+      "phase": "old",
+      "pid": 37815,
+      "schema": 1,
+      "jobs_preserved": true,
+      "settings_preserved": true,
+      "model_files_preserved": 38,
+      "reconnect": true
+    },
+    {
+      "phase": "upgrade",
+      "pid": 38552,
+      "schema": 1,
+      "jobs_preserved": true,
+      "settings_preserved": true,
+      "model_files_preserved": 38,
+      "reconnect": true
+    },
+    {
+      "phase": "rollback",
+      "pid": 38849,
+      "schema": 1,
+      "jobs_preserved": true,
+      "settings_preserved": true,
+      "model_files_preserved": 38,
+      "reconnect": true
+    }
+  ],
+  "gui_tested": false,
+  "old_runtime_refuses_future_schema_without_write": true,
+  "backup_restore_and_reconnect": true,
+  "passed": true
+}

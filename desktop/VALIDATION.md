@@ -106,3 +106,17 @@ Then UI automation reported `Sky Computer Use native pipe closed before response
 The image was mounted read-only. All **281 Mach-O files** pass arm64 verification, with no non-system absolute external dependencies. Deep/strict verification and full frozen-runtime CLI diagnosis pass from the relocated mounted App with developer Python/PATH removed. The image was detached. Reports are `dmg-verification.json` and `dmg-mount-verification.json` under `build/desktop`.
 
 This is not Developer ID signing, notarization, Gatekeeper, clean-Mac or minimum-OS acceptance. No Git commands or publishing were performed.
+# 跨版本 App 演練
+
+`verify_app_upgrade.py` 接受兩個不同版本、不同 runtime 的完整開發版 App，將它們依序複製到同一暫存安裝位置，演練舊版 → 新版 → 舊版。所有服務、資料庫、測試音檔與模型副本使用獨立暫存目錄；既有模型目錄只作為複製來源。服務每次切換前必須停止，佇列全程暫停，不執行模型品質評測。
+
+```sh
+python3 desktop/scripts/verify_app_upgrade.py \
+  --old-app '/path/to/old/ASR Desktop.app' \
+  --new-app '/path/to/new/ASR Desktop.app' \
+  --models "$HOME/Library/Application Support/ASR Desktop/models" \
+  --report build/desktop/app-upgrade-verification.json
+```
+
+核對項目包含任務與設定保留、模型資產 SHA-256 不變、重連同一 helper、SQLite integrity_check、舊 runtime 拒絕 synthetic future schema 且資料庫未變，以及完整備份還原後重新連線。若兩版 schema 相同，這只證明相同 schema 的跨版本相容；schema 升級另由 `tests.desktop.test_workspace.SchemaTests` 的版本 0 fixture 驗證。此演練不包含 GUI、正式簽署或乾淨 macOS 14 驗收。
+
