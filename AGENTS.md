@@ -2,7 +2,7 @@
 
 本檔案適用於本專案及其所有子目錄。使用者當次明確指示優先於本檔案的預設規則。
 
-所有工作亦須遵守 [`.codex/rules/command-confirmation.md`](.codex/rules/command-confirmation.md) 中定義的 Git 提交、Conventional Commits 與 Release 規則。
+專案技能統一存放於 `.agents/skills/`。Git 提交、Conventional Commits 與 Release 規則以本檔案第 4 至第 6 節為準。
 
 ## 1. 實作前先釐清
 
