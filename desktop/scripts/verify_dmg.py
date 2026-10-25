@@ -4,6 +4,7 @@
 import argparse
 import json
 import os
+import plistlib
 from pathlib import Path
 import subprocess
 import tempfile
@@ -15,7 +16,9 @@ MAGIC = {bytes.fromhex(value) for value in ("cffaedfe", "cefaedfe", "feedfacf", 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--image", type=Path, default=ROOT / "build/desktop/ASR-Desktop-development-arm64.dmg")
-    image = parser.parse_args().image.resolve()
+    parser.add_argument("--expected-version", help="Require this complete App release version")
+    args = parser.parse_args()
+    image = args.image.resolve()
     with tempfile.TemporaryDirectory(prefix="asr-dmg-review-", dir="/private/tmp") as directory:
         mount = Path(directory) / "volume"
         mount.mkdir()
@@ -24,6 +27,13 @@ def main():
             subprocess.run(["/usr/bin/hdiutil", "attach", "-readonly", "-nobrowse", "-mountpoint", str(mount), str(image)], check=True)
             attached = True
             app = mount / "ASR Desktop.app"
+            if args.expected_version:
+                with (app / "Contents/Info.plist").open("rb") as stream:
+                    info = plistlib.load(stream)
+                if info.get("ASRDesktopReleaseVersion") != args.expected_version:
+                    raise ValueError("DMG App version does not match release tag")
+                if info.get("LSMinimumSystemVersion") != "14.0":
+                    raise ValueError("DMG minimum system does not match current asset contract")
             subprocess.run(["/usr/bin/codesign", "--verify", "--deep", "--strict", str(app)], check=True)
             binaries, violations = [], []
             for path in app.rglob("*"):
@@ -53,6 +63,7 @@ def main():
                       "external_absolute_dependencies": violations, "relocated_frozen_diagnose_ready": True,
                       "developer_path_removed": True, "formal_distribution": False}
             target = ROOT / "build/desktop/dmg-mount-verification.json"
+            target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(json.dumps(record, indent=2) + "\n")
             print(target)
         finally:
