@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "asr-srt"
-version = "0.2.0b2"
+version = "0.2.0b3"
 description = "Local Apple Silicon video-to-SRT generator using FunASR"
 readme = "README.md"
 requires-python = ">=3.9"

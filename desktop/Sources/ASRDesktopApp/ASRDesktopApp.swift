@@ -16,8 +16,10 @@ struct ASRDesktopApp: App {
     var body: some Scene {
         WindowGroup("ASR Desktop") {
             DesktopView(updates: updates)
-                .frame(minWidth: 860, minHeight: 640)
+                // Reserve space for native window chrome within the supported 640pt window.
+                .frame(minWidth: 860, minHeight: 580)
         }
         .defaultSize(width: 1040, height: 740)
+        .commands { WorkspaceCommands() }
     }
 }
